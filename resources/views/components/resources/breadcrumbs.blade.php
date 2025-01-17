@@ -7,8 +7,9 @@
     <ol class="flex flex-wrap items-center gap-y-1">
         <li class="inline-flex items-center">
             <div class="flex items-center">
-                <a wire:navigate class="text-xs truncate lg:text-sm"
-                    href="{{ route('project.show', ['project_uuid' => $this->parameters['project_uuid']]) }}">
+                <a class="text-xs truncate lg:text-sm"
+                    wire:navigate
+                    href="{{ route('project.show', ['project_uuid' => data_get($resource, 'environment.project.uuid')]) }}">
                     {{ data_get($resource, 'environment.project.name', 'Undefined Name') }}</a>
                 <svg aria-hidden="true" class="w-4 h-4 mx-1 font-bold dark:text-warning" fill="currentColor"
                     viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
@@ -21,7 +22,11 @@
         <li>
             <div class="flex items-center">
                 <a class="text-xs truncate lg:text-sm"
-                    href="{{ route('project.resource.index', ['environment_name' => $this->parameters['environment_name'], 'project_uuid' => $this->parameters['project_uuid']]) }}">{{ $this->parameters['environment_name'] }}</a>
+                    wire:navigate
+                    href="{{ route('project.resource.index', [
+                        'environment_uuid' => data_get($resource, 'environment.uuid'),
+                        'project_uuid' => data_get($resource, 'environment.project.uuid'),
+                    ]) }}">{{ data_get($resource, 'environment.name') }}</a>
                 <svg aria-hidden="true" class="w-4 h-4 mx-1 font-bold dark:text-warning" fill="currentColor"
                     viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                     <path fill-rule="evenodd"
@@ -44,7 +49,7 @@
         @if ($resource->getMorphClass() == 'App\Models\Service')
             <x-status.services :service="$resource" />
         @else
-            <x-status.index :resource="$resource" :lastDeploymentInfo="$lastDeploymentInfo" :lastDeploymentLink="$lastDeploymentLink" />
+            <x-status.index :resource="$resource" :title="$lastDeploymentInfo" :lastDeploymentLink="$lastDeploymentLink" />
         @endif
     </ol>
 </nav>

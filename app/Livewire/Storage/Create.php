@@ -8,13 +8,21 @@ use Livewire\Component;
 class Create extends Component
 {
     public string $name;
+
     public string $description;
+
     public string $region = 'us-east-1';
+
     public string $key;
+
     public string $secret;
+
     public string $bucket;
+
     public string $endpoint;
+
     public S3Storage $storage;
+
     protected $rules = [
         'name' => 'required|min:3|max:255',
         'description' => 'nullable|min:3|max:255',
@@ -24,25 +32,28 @@ class Create extends Component
         'bucket' => 'required|max:255',
         'endpoint' => 'required|url|max:255',
     ];
+
     protected $validationAttributes = [
         'name' => 'Name',
         'description' => 'Description',
         'region' => 'Region',
         'key' => 'Key',
-        'secret' => "Secret",
+        'secret' => 'Secret',
         'bucket' => 'Bucket',
         'endpoint' => 'Endpoint',
     ];
 
-    public function mount()
+    public function updatedEndpoint($value)
     {
-        if (isDev()) {
-            $this->name = 'Local MinIO';
-            $this->description = 'Local MinIO';
-            $this->key = 'minioadmin';
-            $this->secret = 'minioadmin';
-            $this->bucket = 'local';
-            $this->endpoint = 'http://coolify-minio:9000';
+        if (! str($value)->startsWith('https://') && ! str($value)->startsWith('http://')) {
+            $this->endpoint = 'https://'.$value;
+            $value = $this->endpoint;
+        }
+
+        if (str($value)->contains('your-objectstorage.com') && ! isset($this->bucket)) {
+            $this->bucket = str($value)->after('//')->before('.');
+        } elseif (str($value)->contains('your-objectstorage.com')) {
+            $this->bucket = $this->bucket ?: str($value)->after('//')->before('.');
         }
     }
 
@@ -50,7 +61,7 @@ class Create extends Component
     {
         try {
             $this->validate();
-            $this->storage = new S3Storage();
+            $this->storage = new S3Storage;
             $this->storage->name = $this->name;
             $this->storage->description = $this->description ?? null;
             $this->storage->region = $this->region;
@@ -65,6 +76,7 @@ class Create extends Component
             $this->storage->team_id = currentTeam()->id;
             $this->storage->testConnection();
             $this->storage->save();
+
             return redirect()->route('storage.show', $this->storage->uuid);
         } catch (\Throwable $e) {
             $this->dispatch('error', 'Failed to create storage.', $e->getMessage());

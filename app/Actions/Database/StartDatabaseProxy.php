@@ -18,6 +18,8 @@ class StartDatabaseProxy
 {
     use AsAction;
 
+    public string $jobQueue = 'high';
+
     public function handle(StandaloneRedis|StandalonePostgresql|StandaloneMongodb|StandaloneMysql|StandaloneMariadb|StandaloneKeydb|StandaloneDragonfly|StandaloneClickhouse|ServiceDatabase $database)
     {
         $internalPort = null;
@@ -26,7 +28,7 @@ class StartDatabaseProxy
         $server = data_get($database, 'destination.server');
         $containerName = data_get($database, 'uuid');
         $proxyContainerName = "{$database->uuid}-proxy";
-        if ($database->getMorphClass() === 'App\Models\ServiceDatabase') {
+        if ($database->getMorphClass() === \App\Models\ServiceDatabase::class) {
             $databaseType = $database->databaseType();
             // $connectPredefined = data_get($database, 'service.connect_to_docker_network');
             $network = $database->service->uuid;
@@ -34,54 +36,58 @@ class StartDatabaseProxy
             $proxyContainerName = "{$database->service->uuid}-proxy";
             switch ($databaseType) {
                 case 'standalone-mariadb':
-                    $type = 'App\Models\StandaloneMariadb';
+                    $type = \App\Models\StandaloneMariadb::class;
                     $containerName = "mariadb-{$database->service->uuid}";
                     break;
                 case 'standalone-mongodb':
-                    $type = 'App\Models\StandaloneMongodb';
+                    $type = \App\Models\StandaloneMongodb::class;
                     $containerName = "mongodb-{$database->service->uuid}";
                     break;
                 case 'standalone-mysql':
-                    $type = 'App\Models\StandaloneMysql';
+                    $type = \App\Models\StandaloneMysql::class;
                     $containerName = "mysql-{$database->service->uuid}";
                     break;
                 case 'standalone-postgresql':
-                    $type = 'App\Models\StandalonePostgresql';
+                    $type = \App\Models\StandalonePostgresql::class;
                     $containerName = "postgresql-{$database->service->uuid}";
                     break;
                 case 'standalone-redis':
-                    $type = 'App\Models\StandaloneRedis';
+                    $type = \App\Models\StandaloneRedis::class;
                     $containerName = "redis-{$database->service->uuid}";
                     break;
                 case 'standalone-keydb':
-                    $type = 'App\Models\StandaloneKeydb';
+                    $type = \App\Models\StandaloneKeydb::class;
                     $containerName = "keydb-{$database->service->uuid}";
                     break;
                 case 'standalone-dragonfly':
-                    $type = 'App\Models\StandaloneDragonfly';
+                    $type = \App\Models\StandaloneDragonfly::class;
                     $containerName = "dragonfly-{$database->service->uuid}";
                     break;
                 case 'standalone-clickhouse':
-                    $type = 'App\Models\StandaloneClickhouse';
+                    $type = \App\Models\StandaloneClickhouse::class;
                     $containerName = "clickhouse-{$database->service->uuid}";
+                    break;
+                case 'standalone-supabase/postgres':
+                    $type = \App\Models\StandalonePostgresql::class;
+                    $containerName = "supabase-db-{$database->service->uuid}";
                     break;
             }
         }
-        if ($type === 'App\Models\StandaloneRedis') {
+        if ($type === \App\Models\StandaloneRedis::class) {
             $internalPort = 6379;
-        } else if ($type === 'App\Models\StandalonePostgresql') {
+        } elseif ($type === \App\Models\StandalonePostgresql::class) {
             $internalPort = 5432;
-        } else if ($type === 'App\Models\StandaloneMongodb') {
+        } elseif ($type === \App\Models\StandaloneMongodb::class) {
             $internalPort = 27017;
-        } else if ($type === 'App\Models\StandaloneMysql') {
+        } elseif ($type === \App\Models\StandaloneMysql::class) {
             $internalPort = 3306;
-        } else if ($type === 'App\Models\StandaloneMariadb') {
+        } elseif ($type === \App\Models\StandaloneMariadb::class) {
             $internalPort = 3306;
-        } else if ($type === 'App\Models\StandaloneKeydb') {
+        } elseif ($type === \App\Models\StandaloneKeydb::class) {
             $internalPort = 6379;
-        } else if ($type === 'App\Models\StandaloneDragonfly') {
+        } elseif ($type === \App\Models\StandaloneDragonfly::class) {
             $internalPort = 6379;
-        } else if ($type === 'App\Models\StandaloneClickhouse') {
+        } elseif ($type === \App\Models\StandaloneClickhouse::class) {
             $internalPort = 9000;
         }
         $configuration_dir = database_proxy_dir($database->uuid);
@@ -101,7 +107,7 @@ class StartDatabaseProxy
        }
     }
     EOF;
-        $dockerfile = <<< EOF
+        $dockerfile = <<< 'EOF'
     FROM nginx:stable-alpine
 
     COPY nginx.conf /etc/nginx/nginx.conf
@@ -113,7 +119,7 @@ class StartDatabaseProxy
                         'context' => $configuration_dir,
                         'dockerfile' => 'Dockerfile',
                     ],
-                    'image' => "nginx:stable-alpine",
+                    'image' => 'nginx:stable-alpine',
                     'container_name' => $proxyContainerName,
                     'restart' => RESTART_MODE,
                     'ports' => [
@@ -130,17 +136,17 @@ class StartDatabaseProxy
                         'interval' => '5s',
                         'timeout' => '5s',
                         'retries' => 3,
-                        'start_period' => '1s'
+                        'start_period' => '1s',
                     ],
-                ]
+                ],
             ],
             'networks' => [
                 $network => [
                     'external' => true,
                     'name' => $network,
                     'attachable' => true,
-                ]
-            ]
+                ],
+            ],
         ];
         $dockercompose_base64 = base64_encode(Yaml::dump($docker_compose, 4, 2));
         $nginxconf_base64 = base64_encode($nginxconf);

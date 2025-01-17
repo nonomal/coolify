@@ -2,15 +2,19 @@
 
 namespace App\Console;
 
-use App\Jobs\CheckLogDrainContainerJob;
+use App\Jobs\CheckAndStartSentinelJob;
+use App\Jobs\CheckForUpdatesJob;
+use App\Jobs\CheckHelperImageJob;
 use App\Jobs\CleanupInstanceStuffsJob;
+use App\Jobs\CleanupStaleMultiplexedConnections;
 use App\Jobs\DatabaseBackupJob;
+use App\Jobs\DockerCleanupJob;
+use App\Jobs\PullTemplatesFromCDN;
 use App\Jobs\ScheduledTaskJob;
-use App\Jobs\InstanceAutoUpdateJob;
-use App\Jobs\ContainerStatusJob;
-use App\Jobs\PullHelperImageJob;
-use App\Jobs\PullSentinelImageJob;
-use App\Jobs\ServerStatusJob;
+use App\Jobs\ServerCheckJob;
+use App\Jobs\ServerCleanupMux;
+use App\Jobs\ServerStorageCheckJob;
+use App\Jobs\UpdateCoolifyJob;
 use App\Models\InstanceSettings;
 use App\Models\ScheduledDatabaseBackup;
 use App\Models\ScheduledTask;
@@ -18,150 +22,266 @@ use App\Models\Server;
 use App\Models\Team;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Carbon;
 
 class Kernel extends ConsoleKernel
 {
-    private $all_servers;
+    private $allServers;
+
+    private Schedule $scheduleInstance;
+
+    private InstanceSettings $settings;
+
+    private string $updateCheckFrequency;
+
+    private string $instanceTimezone;
+
     protected function schedule(Schedule $schedule): void
     {
-        $this->all_servers = Server::all();
+        $this->scheduleInstance = $schedule;
+        $this->allServers = Server::where('ip', '!=', '1.2.3.4');
+
+        $this->settings = instanceSettings();
+        $this->updateCheckFrequency = $this->settings->update_check_frequency ?: '0 * * * *';
+
+        $this->instanceTimezone = $this->settings->instance_timezone ?: config('app.timezone');
+
+        if (validate_timezone($this->instanceTimezone) === false) {
+            $this->instanceTimezone = config('app.timezone');
+        }
+
+        // $this->scheduleInstance->job(new CleanupStaleMultiplexedConnections)->hourly();
+
         if (isDev()) {
             // Instance Jobs
-            $schedule->command('horizon:snapshot')->everyMinute();
-            $schedule->job(new CleanupInstanceStuffsJob)->everyMinute()->onOneServer();
-            // $schedule->job(new CheckResaleLicenseJob)->hourly()->onOneServer();
+            $this->scheduleInstance->command('horizon:snapshot')->everyMinute();
+            $this->scheduleInstance->job(new CleanupInstanceStuffsJob)->everyMinute()->onOneServer();
+            $this->scheduleInstance->job(new CheckHelperImageJob)->everyTenMinutes()->onOneServer();
+
             // Server Jobs
-            $this->check_scheduled_backups($schedule);
-            $this->check_resources($schedule);
-            $this->check_scheduled_backups($schedule);
-            // $this->pull_helper_image($schedule);
-            $this->check_scheduled_tasks($schedule);
-            $schedule->command('uploads:clear')->everyTwoMinutes();
+            $this->checkResources();
+
+            $this->checkScheduledBackups();
+            $this->checkScheduledTasks();
+
+            $this->scheduleInstance->command('uploads:clear')->everyTwoMinutes();
+
         } else {
             // Instance Jobs
-            $schedule->command('horizon:snapshot')->everyFiveMinutes();
-            $schedule->command('cleanup:unreachable-servers')->daily();
+            $this->scheduleInstance->command('horizon:snapshot')->everyFiveMinutes();
+            $this->scheduleInstance->command('cleanup:unreachable-servers')->daily()->onOneServer();
 
-            $schedule->job(new CleanupInstanceStuffsJob)->everyTwoMinutes()->onOneServer();
-            // $schedule->job(new CheckResaleLicenseJob)->hourly()->onOneServer();
+            $this->scheduleInstance->job(new PullTemplatesFromCDN)->cron($this->updateCheckFrequency)->timezone($this->instanceTimezone)->onOneServer();
+
+            $this->scheduleInstance->job(new CleanupInstanceStuffsJob)->everyTwoMinutes()->onOneServer();
+            $this->scheduleUpdates();
 
             // Server Jobs
-            $this->instance_auto_update($schedule);
-            $this->check_scheduled_backups($schedule);
-            $this->check_resources($schedule);
-            $this->pull_helper_image($schedule);
-            $this->check_scheduled_tasks($schedule);
+            $this->checkResources();
 
-            $schedule->command('cleanup:database --yes')->daily();
-            $schedule->command('uploads:clear')->everyTwoMinutes();
+            $this->pullImages();
+
+            $this->checkScheduledBackups();
+            $this->checkScheduledTasks();
+
+            $this->scheduleInstance->command('cleanup:database --yes')->daily();
+            $this->scheduleInstance->command('uploads:clear')->everyTwoMinutes();
         }
     }
-    private function pull_helper_image($schedule)
-    {
-        $servers = $this->all_servers->where('settings.is_usable', true)->where('settings.is_reachable', true)->where('ip', '!=', '1.2.3.4');
-        foreach ($servers as $server) {
-            if (config('coolify.is_sentinel_enabled')) {
-                $schedule->job(new PullSentinelImageJob($server))->everyFiveMinutes()->onOneServer();
-            }
-            $schedule->job(new PullHelperImageJob($server))->everyFiveMinutes()->onOneServer();
-        }
-    }
-    private function check_resources($schedule)
+
+    private function pullImages(): void
     {
         if (isCloud()) {
-            $servers = $this->all_servers->whereNotNull('team.subscription')->where('team.subscription.stripe_trial_already_ended', false)->where('ip', '!=', '1.2.3.4');
+            $servers = $this->allServers->whereRelation('team.subscription', 'stripe_invoice_paid', true)->whereRelation('settings', 'is_usable', true)->whereRelation('settings', 'is_reachable', true)->get();
             $own = Team::find(0)->servers;
             $servers = $servers->merge($own);
-            $containerServers = $servers->where('settings.is_swarm_worker', false)->where('settings.is_build_server', false);
         } else {
-            $servers = $this->all_servers->where('ip', '!=', '1.2.3.4');
-            $containerServers = $servers->where('settings.is_swarm_worker', false)->where('settings.is_build_server', false);
-        }
-        foreach ($containerServers as $server) {
-            $schedule->job(new ContainerStatusJob($server))->everyMinute()->onOneServer();
-            if ($server->isLogDrainEnabled()) {
-                $schedule->job(new CheckLogDrainContainerJob($server))->everyMinute()->onOneServer();
-            }
+            $servers = $this->allServers->whereRelation('settings', 'is_usable', true)->whereRelation('settings', 'is_reachable', true)->get();
         }
         foreach ($servers as $server) {
-            $schedule->job(new ServerStatusJob($server))->everyMinute()->onOneServer();
+            if ($server->isSentinelEnabled()) {
+                $this->scheduleInstance->job(function () use ($server) {
+                    CheckAndStartSentinelJob::dispatch($server);
+                })->cron($this->updateCheckFrequency)->timezone($this->instanceTimezone)->onOneServer();
+            }
+        }
+        $this->scheduleInstance->job(new CheckHelperImageJob)
+            ->cron($this->updateCheckFrequency)
+            ->timezone($this->instanceTimezone)
+            ->onOneServer();
+    }
+
+    private function scheduleUpdates(): void
+    {
+        $this->scheduleInstance->job(new CheckForUpdatesJob)
+            ->cron($this->updateCheckFrequency)
+            ->timezone($this->instanceTimezone)
+            ->onOneServer();
+
+        if ($this->settings->is_auto_update_enabled) {
+            $autoUpdateFrequency = $this->settings->auto_update_frequency;
+            $this->scheduleInstance->job(new UpdateCoolifyJob)
+                ->cron($autoUpdateFrequency)
+                ->timezone($this->instanceTimezone)
+                ->onOneServer();
         }
     }
-    private function instance_auto_update($schedule)
+
+    private function checkResources(): void
     {
-        if (isDev() || isCloud()) {
-            return;
+        if (isCloud()) {
+            $servers = $this->allServers->whereRelation('team.subscription', 'stripe_invoice_paid', true)->get();
+            $own = Team::find(0)->servers;
+            $servers = $servers->merge($own);
+        } else {
+            $servers = $this->allServers->get();
         }
-        $settings = InstanceSettings::get();
-        if ($settings->is_auto_update_enabled) {
-            $schedule->job(new InstanceAutoUpdateJob)->everyTenMinutes()->onOneServer();
+
+        foreach ($servers as $server) {
+            $serverTimezone = data_get($server->settings, 'server_timezone', $this->instanceTimezone);
+            if (validate_timezone($serverTimezone) === false) {
+                $serverTimezone = config('app.timezone');
+            }
+
+            // Sentinel check
+            $lastSentinelUpdate = $server->sentinel_updated_at;
+            if (Carbon::parse($lastSentinelUpdate)->isBefore(now()->subSeconds($server->waitBeforeDoingSshCheck()))) {
+                // Check container status every minute if Sentinel does not activated
+                if (isCloud()) {
+                    $this->scheduleInstance->job(new ServerCheckJob($server))->timezone($serverTimezone)->everyFiveMinutes()->onOneServer();
+                } else {
+                    $this->scheduleInstance->job(new ServerCheckJob($server))->timezone($serverTimezone)->everyMinute()->onOneServer();
+                }
+                // $this->scheduleInstance->job(new \App\Jobs\ServerCheckNewJob($server))->everyFiveMinutes()->onOneServer();
+
+                $this->scheduleInstance->job(new ServerStorageCheckJob($server))->cron($server->settings->server_disk_usage_check_frequency)->timezone($serverTimezone)->onOneServer();
+            }
+
+            $this->scheduleInstance->job(new DockerCleanupJob($server))->cron($server->settings->docker_cleanup_frequency)->timezone($serverTimezone)->onOneServer();
+
+            // Cleanup multiplexed connections every hour
+            // $this->scheduleInstance->job(new ServerCleanupMux($server))->hourly()->onOneServer();
+
+            // Temporary solution until we have better memory management for Sentinel
+            if ($server->isSentinelEnabled()) {
+                $this->scheduleInstance->job(function () use ($server) {
+                    $server->restartContainer('coolify-sentinel');
+                })->daily()->onOneServer();
+            }
         }
     }
-    private function check_scheduled_backups($schedule)
+
+    private function checkScheduledBackups(): void
     {
-        $scheduled_backups = ScheduledDatabaseBackup::all();
+        $scheduled_backups = ScheduledDatabaseBackup::where('enabled', true)->get();
         if ($scheduled_backups->isEmpty()) {
             return;
         }
+        $finalScheduledBackups = collect();
         foreach ($scheduled_backups as $scheduled_backup) {
-            if (!$scheduled_backup->enabled) {
+            if (blank(data_get($scheduled_backup, 'database'))) {
+                $scheduled_backup->delete();
+
                 continue;
             }
-            if (is_null(data_get($scheduled_backup, 'database'))) {
-                ray('database not found');
+            $server = $scheduled_backup->server();
+            if (blank($server)) {
                 $scheduled_backup->delete();
+
                 continue;
+            }
+            if ($server->isFunctional() === false) {
+                continue;
+            }
+            if (isCloud() && data_get($server->team->subscription, 'stripe_invoice_paid', false) === false && $server->team->id !== 0) {
+                continue;
+            }
+            $finalScheduledBackups->push($scheduled_backup);
+        }
+
+        foreach ($finalScheduledBackups as $scheduled_backup) {
+            if (isset(VALID_CRON_STRINGS[$scheduled_backup->frequency])) {
+                $scheduled_backup->frequency = VALID_CRON_STRINGS[$scheduled_backup->frequency];
+            }
+
+            $server = $scheduled_backup->server();
+            $serverTimezone = data_get($server->settings, 'server_timezone', $this->instanceTimezone);
+
+            if (validate_timezone($serverTimezone) === false) {
+                $serverTimezone = config('app.timezone');
             }
 
             if (isset(VALID_CRON_STRINGS[$scheduled_backup->frequency])) {
                 $scheduled_backup->frequency = VALID_CRON_STRINGS[$scheduled_backup->frequency];
             }
-            $schedule->job(new DatabaseBackupJob(
+            $serverTimezone = data_get($server->settings, 'server_timezone', $this->instanceTimezone);
+            $this->scheduleInstance->job(new DatabaseBackupJob(
                 backup: $scheduled_backup
-            ))->cron($scheduled_backup->frequency)->onOneServer();
+            ))->cron($scheduled_backup->frequency)->timezone($serverTimezone)->onOneServer();
         }
     }
 
-    private function check_scheduled_tasks($schedule)
+    private function checkScheduledTasks(): void
     {
-        $scheduled_tasks = ScheduledTask::all();
+        $scheduled_tasks = ScheduledTask::where('enabled', true)->get();
         if ($scheduled_tasks->isEmpty()) {
             return;
         }
+        $finalScheduledTasks = collect();
         foreach ($scheduled_tasks as $scheduled_task) {
-            if ($scheduled_task->enabled === false) {
-                continue;
-            }
             $service = $scheduled_task->service;
             $application = $scheduled_task->application;
 
-            if (!$application && !$service) {
-                ray('application/service attached to scheduled task does not exist');
+            $server = $scheduled_task->server();
+            if (blank($server)) {
                 $scheduled_task->delete();
+
                 continue;
             }
-            if ($application) {
-                if (str($application->status)->contains('running') === false) {
-                    continue;
-                }
+
+            if ($server->isFunctional() === false) {
+                continue;
             }
-            if ($service) {
-                if (str($service->status())->contains('running') === false) {
-                    continue;
-                }
+
+            if (isCloud() && data_get($server->team->subscription, 'stripe_invoice_paid', false) === false && $server->team->id !== 0) {
+                continue;
             }
+
+            if (! $service && ! $application) {
+                $scheduled_task->delete();
+
+                continue;
+            }
+
+            if ($application && str($application->status)->contains('running') === false) {
+                continue;
+            }
+            if ($service && str($service->status)->contains('running') === false) {
+                continue;
+            }
+
+            $finalScheduledTasks->push($scheduled_task);
+        }
+
+        foreach ($finalScheduledTasks as $scheduled_task) {
+            $server = $scheduled_task->server();
             if (isset(VALID_CRON_STRINGS[$scheduled_task->frequency])) {
                 $scheduled_task->frequency = VALID_CRON_STRINGS[$scheduled_task->frequency];
             }
-            $schedule->job(new ScheduledTaskJob(
+            $serverTimezone = data_get($server->settings, 'server_timezone', $this->instanceTimezone);
+
+            if (validate_timezone($serverTimezone) === false) {
+                $serverTimezone = config('app.timezone');
+            }
+            $this->scheduleInstance->job(new ScheduledTaskJob(
                 task: $scheduled_task
-            ))->cron($scheduled_task->frequency)->onOneServer();
+            ))->cron($scheduled_task->frequency)->timezone($serverTimezone)->onOneServer();
         }
     }
 
     protected function commands(): void
     {
-        $this->load(__DIR__ . '/Commands');
+        $this->load(__DIR__.'/Commands');
 
         require base_path('routes/console.php');
     }

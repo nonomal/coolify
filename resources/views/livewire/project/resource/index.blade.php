@@ -1,28 +1,31 @@
 <div>
+    <x-slot:title>
+        {{ data_get_str($project, 'name')->limit(10) }} > Resources | Coolify
+    </x-slot>
     <div class="flex flex-col">
         <div class="flex items-center gap-2">
             <h1>Resources</h1>
             @if ($environment->isEmpty())
-                <a class="button"
-                    href="{{ route('project.clone-me', ['project_uuid' => data_get($project, 'uuid'), 'environment_name' => request()->route('environment_name')]) }}">
+                <a class="button" wire:navigate
+                    href="{{ route('project.clone-me', ['project_uuid' => data_get($project, 'uuid'), 'environment_uuid' => data_get($environment, 'uuid')]) }}">
                     Clone
                 </a>
             @else
-                <a href="{{ route('project.resource.create', ['project_uuid' => request()->route('project_uuid'), 'environment_name' => request()->route('environment_name')]) }}  "
-                    class="button">+
+                <a href="{{ route('project.resource.create', ['project_uuid' => data_get($parameters, 'project_uuid'), 'environment_uuid' => data_get($environment, 'uuid')]) }}"
+                    wire:navigate class="button">+
                     New</a>
-                <a class="button"
-                    href="{{ route('project.clone-me', ['project_uuid' => data_get($project, 'uuid'), 'environment_name' => request()->route('environment_name')]) }}">
+                <a class="button" wire:navigate
+                    href="{{ route('project.clone-me', ['project_uuid' => data_get($project, 'uuid'), 'environment_uuid' => data_get($environment, 'uuid')]) }}">
                     Clone
                 </a>
             @endif
             <livewire:project.delete-environment :disabled="!$environment->isEmpty()" :environment_id="$environment->id" />
         </div>
-        <nav class="flex pt-2 pb-10">
+        <nav class="flex pt-2 pb-6">
             <ol class="flex items-center">
                 <li class="inline-flex items-center">
-                    <a class="text-xs truncate lg:text-sm"
-                        href="{{ route('project.show', ['project_uuid' => request()->route('project_uuid')]) }}">
+                    <a class="text-xs truncate lg:text-sm" wire:navigate
+                        href="{{ route('project.show', ['project_uuid' => data_get($parameters, 'project_uuid')]) }}">
                         {{ $project->name }}</a>
                 </li>
                 <li>
@@ -33,23 +36,32 @@
                                 d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
                                 clip-rule="evenodd"></path>
                         </svg>
-                        <a class="text-xs truncate lg:text-sm"
-                            href="{{ route('project.resource.index', ['environment_name' => request()->route('environment_name'), 'project_uuid' => request()->route('project_uuid')]) }}">{{ request()->route('environment_name') }}</a>
+
+                        <livewire:project.resource.environment-select :environments="$project->environments" />
                     </div>
                 </li>
             </ol>
         </nav>
     </div>
     @if ($environment->isEmpty())
-        <a href="{{ route('project.resource.create', ['project_uuid' => request()->route('project_uuid'), 'environment_name' => request()->route('environment_name')]) }}  "
+        <a wire:navigate href="{{ route('project.resource.create', ['project_uuid' => data_get($parameters, 'project_uuid'), 'environment_uuid' => data_get($environment, 'uuid')]) }}"
             class="items-center justify-center box">+ Add New Resource</a>
     @else
         <div x-data="searchComponent()">
-            <x-forms.input autofocus placeholder="Search for name, fqdn..." x-model="search" id="null" />
-            <div class="grid grid-cols-1 gap-4 pt-4 lg:grid-cols-2 xl:grid-cols-3">
+            <x-forms.input placeholder="Search for name, fqdn..." x-model="search" id="null" />
+            <template
+                x-if="filteredApplications.length === 0 && filteredDatabases.length === 0 && filteredServices.length === 0">
+                <div>No resource found with the search term "<span x-text="search"></span>".</div>
+            </template>
+
+            <template x-if="filteredApplications.length > 0">
+                <h2 class="pt-4">Applications</h2>
+            </template>
+            <div x-show="filteredApplications.length > 0"
+                class="grid grid-cols-1 gap-4 pt-4 lg:grid-cols-2 xl:grid-cols-3">
                 <template x-for="item in filteredApplications" :key="item.uuid">
                     <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
+                        <a class="h-24 box group" wire:navigate :href="item.hrefLink">
                             <div class="flex flex-col w-full">
                                 <div class="flex gap-2 px-4">
                                     <div class="pb-2 truncate box-title" x-text="item.name"></div>
@@ -69,20 +81,38 @@
                                 </div>
                                 <div class="max-w-full px-4 truncate box-description" x-text="item.description"></div>
                                 <div class="max-w-full px-4 truncate box-description" x-text="item.fqdn"></div>
+                                <template x-if="item.server_status == false">
+                                    <div class="px-4 text-xs font-bold text-error">The underlying server has problems
+                                    </div>
+                                </template>
                             </div>
                         </a>
                         <div
                             class="flex flex-wrap gap-1 pt-1 group-hover:dark:text-white group-hover:text-black group min-h-6">
                             <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
+                                <a :href="`/tags/${tag.name}`" 
+                                   wire:navigate 
+                                   class="tag" 
+                                   x-text="tag.name">
+                                </a>
                             </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
+                            <a :href="`${item.hrefLink}/tags`" 
+                               wire:navigate 
+                               class="add-tag">
+                                Add tag
+                            </a>
                         </div>
                     </span>
                 </template>
-                <template x-for="item in filteredPostgresqls" :key="item.uuid">
+            </div>
+            <template x-if="filteredDatabases.length > 0">
+                <h2 class="pt-4">Databases</h2>
+            </template>
+            <div x-show="filteredDatabases.length > 0"
+                class="grid grid-cols-1 gap-4 pt-4 lg:grid-cols-2 xl:grid-cols-3">
+                <template x-for="item in filteredDatabases" :key="item.uuid">
                     <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
+                        <a class="h-24 box group" wire:navigate :href="item.hrefLink">
                             <div class="flex flex-col w-full">
                                 <div class="flex gap-2 px-4">
                                     <div class="pb-2 truncate box-title" x-text="item.name"></div>
@@ -101,236 +131,39 @@
                                     </template>
                                 </div>
                                 <div class="max-w-full px-4 truncate box-description" x-text="item.description"></div>
+                                <div class="max-w-full px-4 truncate box-description" x-text="item.fqdn"></div>
+                                <template x-if="item.server_status == false">
+                                    <div class="px-4 text-xs font-bold text-error">The underlying server has problems
+                                    </div>
+                                </template>
                             </div>
                         </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group-hover:text-black group min-h-6">
+                        <div
+                            class="flex flex-wrap gap-1 pt-1 group-hover:dark:text-white group-hover:text-black group min-h-6">
                             <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
+                                <a :href="`/tags/${tag.name}`" 
+                                   wire:navigate 
+                                   class="tag" 
+                                   x-text="tag.name">
+                                </a>
                             </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
+                            <a :href="`${item.hrefLink}/tags`" 
+                               wire:navigate 
+                               class="add-tag">
+                                Add tag
+                            </a>
                         </div>
                     </span>
                 </template>
-                <template x-for="item in filteredRedis" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
-                <template x-for="item in filteredMongodbs" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
-                <template x-for="item in filteredMysqls" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
-                <template x-for="item in filteredMariadbs" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
-                <template x-for="item in filteredKeydbs" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
-                <template x-for="item in filteredDragonflies" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
-                <template x-for="item in filteredClickhouses" :key="item.uuid">
-                    <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
-                            <div class="flex flex-col w-full">
-                                <div class="flex gap-2 px-4">
-                                    <div class="pb-2 truncate box-title" x-text="item.name"></div>
-                                    <div class="flex-1"></div>
-                                    <template x-if="item.status.startsWith('running')">
-                                        <div title="running" class="bg-success badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('exited')">
-                                        <div title="exited" class="bg-error badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('restarting')">
-                                        <div title="restarting" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                    <template x-if="item.status.startsWith('degraded')">
-                                        <div title="degraded" class="bg-warning badge badge-absolute"></div>
-                                    </template>
-                                </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
-                            </div>
-                        </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
-                            <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
-                            </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
-                        </div>
-                    </span>
-                </template>
+            </div>
+            <template x-if="filteredServices.length > 0">
+                <h2 class="pt-4">Services</h2>
+            </template>
+            <div x-show="filteredServices.length > 0"
+                class="grid grid-cols-1 gap-4 pt-4 lg:grid-cols-2 xl:grid-cols-3">
                 <template x-for="item in filteredServices" :key="item.uuid">
                     <span>
-                        <a class="h-24 box group" :href="item.hrefLink">
+                        <a class="h-24 box group" wire:navigate :href="item.hrefLink">
                             <div class="flex flex-col w-full">
                                 <div class="flex gap-2 px-4">
                                     <div class="pb-2 truncate box-title" x-text="item.name"></div>
@@ -348,14 +181,28 @@
                                         <div title="degraded" class="bg-warning badge badge-absolute"></div>
                                     </template>
                                 </div>
-                                <div class="max-w-full px-4 truncate description" x-text="item.description"></div>
+                                <div class="max-w-full px-4 truncate box-description" x-text="item.description"></div>
+                                <div class="max-w-full px-4 truncate box-description" x-text="item.fqdn"></div>
+                                <template x-if="item.server_status == false">
+                                    <div class="px-4 text-xs font-bold text-error">The underlying server has problems
+                                    </div>
+                                </template>
                             </div>
                         </a>
-                        <div class="flex gap-1 pt-1 group-hover:dark:text-white group min-h-6">
+                        <div
+                            class="flex flex-wrap gap-1 pt-1 group-hover:dark:text-white group-hover:text-black group min-h-6">
                             <template x-for="tag in item.tags">
-                                <div class="tag" @click.prevent="gotoTag(tag.name)" x-text="tag.name"></div>
+                                <a :href="`/tags/${tag.name}`" 
+                                   wire:navigate 
+                                   class="tag" 
+                                   x-text="tag.name">
+                                </a>
                             </template>
-                            <div class="add-tag" @click.prevent="goto(item)">Add tag</div>
+                            <a :href="`${item.hrefLink}/tags`" 
+                               wire:navigate 
+                               class="add-tag">
+                                Add tag
+                            </a>
                         </div>
                     </span>
                 </template>
@@ -383,125 +230,36 @@
             dragonflies: @js($dragonflies),
             clickhouses: @js($clickhouses),
             services: @js($services),
-            gotoTag(tag) {
-                window.location.href = '/tags/' + tag;
-            },
-            goto(item) {
-                const hrefLink = item.hrefLink;
-                window.location.href = `${hrefLink}#tags`;
+            filterAndSort(items) {
+                if (this.search === '') {
+                    return Object.values(items).sort(sortFn);
+                }
+                const searchLower = this.search.toLowerCase();
+                return Object.values(items).filter(item => {
+                    return (item.name?.toLowerCase().includes(searchLower) ||
+                        item.fqdn?.toLowerCase().includes(searchLower) ||
+                        item.description?.toLowerCase().includes(searchLower) ||
+                        item.tags?.some(tag => tag.name.toLowerCase().includes(searchLower)));
+                }).sort(sortFn);
             },
             get filteredApplications() {
-                if (this.search === '') {
-                    return Object.values(this.applications).sort(sortFn);
-                }
-                this.applications = Object.values(this.applications);
-                return this.applications.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.fqdn?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
+                return this.filterAndSort(this.applications)
             },
-            get filteredPostgresqls() {
-                if (this.search === '') {
-                    return Object.values(this.postgresqls).sort(sortFn);
-                }
-                this.postgresqls = Object.values(this.postgresqls);
-                return this.postgresqls.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredRedis() {
-                if (this.search === '') {
-                    return Object.values(this.redis).sort(sortFn);
-                }
-                this.redis = Object.values(this.redis);
-                return this.redis.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredMongodbs() {
-                if (this.search === '') {
-                    return Object.values(this.mongodbs).sort(sortFn);
-                }
-                this.mongodbs = Object.values(this.mongodbs);
-                return this.mongodbs.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredMysqls() {
-                if (this.search === '') {
-                    return Object.values(this.mysqls).sort(sortFn);
-                }
-                this.mysqls = Object.values(this.mysqls);
-                return this.mysqls.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredMariadbs() {
-                if (this.search === '') {
-                    return Object.values(this.mariadbs).sort(sortFn);
-                }
-                this.mariadbs = Object.values(this.mariadbs);
-                return this.mariadbs.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredKeydbs() {
-                if (this.search === '') {
-                    return Object.values(this.keydbs).sort(sortFn);
-                }
-                this.keydbs = Object.values(this.keydbs);
-                return this.keydbs.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredDragonflies() {
-                if (this.search === '') {
-                    return Object.values(this.dragonflies).sort(sortFn);
-                }
-                this.dragonflies = Object.values(this.dragonflies);
-                return this.dragonflies.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-            get filteredClickhouses() {
-                if (this.search === '') {
-                    return Object.values(this.clickhouses).sort(sortFn);
-                }
-                this.clickhouses = Object.values(this.clickhouses);
-                return this.clickhouses.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
+            get filteredDatabases() {
+                return [
+                    this.postgresqls,
+                    this.redis,
+                    this.mongodbs,
+                    this.mysqls,
+                    this.mariadbs,
+                    this.keydbs,
+                    this.dragonflies,
+                    this.clickhouses,
+                ].flatMap((items) => this.filterAndSort(items))
             },
             get filteredServices() {
-                if (this.search === '') {
-                    return Object.values(this.services).sort(sortFn);
-                }
-                this.services = Object.values(this.services);
-                return this.services.filter(item => {
-                    return item.name?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.description?.toLowerCase().includes(this.search.toLowerCase()) ||
-                        item.tags?.some(tag => tag.name.toLowerCase().includes(this.search.toLowerCase()));
-                }).sort(sortFn);
-            },
-
+                return this.filterAndSort(this.services)
+            }
         };
     }
 </script>

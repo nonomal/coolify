@@ -7,14 +7,26 @@ function get_socialite_provider(string $provider)
 {
     $oauth_setting = OauthSetting::firstWhere('provider', $provider);
 
-    if ($provider == 'azure') {
+    if ($provider === 'azure') {
         $azure_config = new \SocialiteProviders\Manager\Config(
             $oauth_setting->client_id,
             $oauth_setting->client_secret,
             $oauth_setting->redirect_uri,
             ['tenant' => $oauth_setting->tenant],
-          );
+        );
+
         return Socialite::driver('azure')->setConfig($azure_config);
+    }
+
+    if ($provider == 'authentik') {
+        $authentik_config = new \SocialiteProviders\Manager\Config(
+            $oauth_setting->client_id,
+            $oauth_setting->client_secret,
+            $oauth_setting->redirect_uri,
+            ['base_url' => $oauth_setting->base_url],
+        );
+
+        return Socialite::driver('authentik')->setConfig($authentik_config);
     }
 
     $config = [
@@ -28,6 +40,7 @@ function get_socialite_provider(string $provider)
         'github' => \Laravel\Socialite\Two\GithubProvider::class,
         'gitlab' => \Laravel\Socialite\Two\GitlabProvider::class,
         'google' => \Laravel\Socialite\Two\GoogleProvider::class,
+        'infomaniak' => \SocialiteProviders\Infomaniak\Provider::class,
     ];
 
     return Socialite::buildProvider(

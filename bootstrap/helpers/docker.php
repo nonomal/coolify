@@ -13,13 +13,14 @@ use Visus\Cuid2\Cuid2;
 function getCurrentApplicationContainerStatus(Server $server, int $id, ?int $pullRequestId = null, ?bool $includePullrequests = false): Collection
 {
     $containers = collect([]);
-    if (!$server->isSwarm()) {
+    if (! $server->isSwarm()) {
         $containers = instant_remote_process(["docker ps -a --filter='label=coolify.applicationId={$id}' --format '{{json .}}' "], $server);
         $containers = format_docker_command_output_to_json($containers);
         $containers = $containers->map(function ($container) use ($pullRequestId, $includePullrequests) {
             $labels = data_get($container, 'Labels');
-            if (!str($labels)->contains("coolify.pullRequestId=")) {
-                data_set($container, 'Labels', $labels . ",coolify.pullRequestId={$pullRequestId}");
+            if (! str($labels)->contains('coolify.pullRequestId=')) {
+                data_set($container, 'Labels', $labels.",coolify.pullRequestId={$pullRequestId}");
+
                 return $container;
             }
             if ($includePullrequests) {
@@ -28,11 +29,26 @@ function getCurrentApplicationContainerStatus(Server $server, int $id, ?int $pul
             if (str($labels)->contains("coolify.pullRequestId=$pullRequestId")) {
                 return $container;
             }
+
             return null;
         });
-        $containers = $containers->filter();
-        return $containers;
+
+        return $containers->filter();
     }
+
+    return $containers;
+}
+
+function getCurrentServiceContainerStatus(Server $server, int $id): Collection
+{
+    $containers = collect([]);
+    if (! $server->isSwarm()) {
+        $containers = instant_remote_process(["docker ps -a --filter='label=coolify.serviceId={$id}' --format '{{json .}}' "], $server);
+        $containers = format_docker_command_output_to_json($containers);
+
+        return $containers->filter();
+    }
+
     return $containers;
 }
 
@@ -44,9 +60,14 @@ function format_docker_command_output_to_json($rawOutput): Collection
     } else {
         $outputLines = collect($outputLines);
     }
-    return $outputLines
-        ->reject(fn ($line) => empty($line))
-        ->map(fn ($outputLine) => json_decode($outputLine, true, flags: JSON_THROW_ON_ERROR));
+
+    try {
+        return $outputLines
+            ->reject(fn ($line) => empty($line))
+            ->map(fn ($outputLine) => json_decode($outputLine, true, flags: JSON_THROW_ON_ERROR));
+    } catch (\Throwable) {
+        return collect([]);
+    }
 }
 
 function format_docker_labels_to_json(string|array $rawOutput): Collection
@@ -60,6 +81,7 @@ function format_docker_labels_to_json(string|array $rawOutput): Collection
         ->reject(fn ($line) => empty($line))
         ->map(function ($outputLine) {
             $outputArray = explode(',', $outputLine);
+
             return collect($outputArray)
                 ->map(function ($outputLine) {
                     return explode('=', $outputLine);
@@ -74,20 +96,24 @@ function format_docker_envs_to_json($rawOutput)
 {
     try {
         $outputLines = json_decode($rawOutput, true, flags: JSON_THROW_ON_ERROR);
+
         return collect(data_get($outputLines[0], 'Config.Env', []))->mapWithKeys(function ($env) {
             $env = explode('=', $env);
+
             return [$env[0] => $env[1]];
         });
-    } catch (\Throwable $e) {
+    } catch (\Throwable) {
         return collect([]);
     }
 }
 function checkMinimumDockerEngineVersion($dockerVersion)
 {
-    $majorDockerVersion = Str::of($dockerVersion)->before('.')->value();
-    if ($majorDockerVersion <= 22) {
+    $majorDockerVersion = str($dockerVersion)->before('.')->value();
+    $requiredDockerVersion = str(config('constants.docker.minimum_required_version'))->before('.')->value();
+    if ($majorDockerVersion < $requiredDockerVersion) {
         $dockerVersion = null;
     }
+
     return $dockerVersion;
 }
 function executeInDocker(string $containerId, string $command)
@@ -103,18 +129,21 @@ function getContainerStatus(Server $server, string $container_id, bool $all_data
     } else {
         $container = instant_remote_process(["docker inspect --format '{{json .}}' {$container_id}"], $server, $throwError);
     }
-    if (!$container) {
+    if (! $container) {
         return 'exited';
     }
     $container = format_docker_command_output_to_json($container);
+    if ($container->isEmpty()) {
+        return 'exited';
+    }
     if ($all_data) {
         return $container[0];
     }
     if ($server->isSwarm()) {
         $replicas = data_get($container[0], 'Replicas');
         $replicas = explode('/', $replicas);
-        $active = (int)$replicas[0];
-        $total = (int)$replicas[1];
+        $active = (int) $replicas[0];
+        $total = (int) $replicas[1];
         if ($active === $total) {
             return 'running';
         } else {
@@ -127,60 +156,87 @@ function getContainerStatus(Server $server, string $container_id, bool $all_data
 
 function generateApplicationContainerName(Application $application, $pull_request_id = 0)
 {
+    // TODO: refactor generateApplicationContainerName, we do not need $application and $pull_request_id
+
     $consistent_container_name = $application->settings->is_consistent_container_name_enabled;
     $now = now()->format('Hisu');
     if ($pull_request_id !== 0 && $pull_request_id !== null) {
-        return $application->uuid . '-pr-' . $pull_request_id;
+        return $application->uuid.'-pr-'.$pull_request_id;
     } else {
         if ($consistent_container_name) {
             return $application->uuid;
         }
-        return $application->uuid . '-' . $now;
+
+        return $application->uuid.'-'.$now;
     }
 }
-function get_port_from_dockerfile($dockerfile): int|null
+function get_port_from_dockerfile($dockerfile): ?int
 {
     $dockerfile_array = explode("\n", $dockerfile);
     $found_exposed_port = null;
     foreach ($dockerfile_array as $line) {
-        $line_str = Str::of($line)->trim();
+        $line_str = str($line)->trim();
         if ($line_str->startsWith('EXPOSE')) {
             $found_exposed_port = $line_str->replace('EXPOSE', '')->trim();
             break;
         }
     }
     if ($found_exposed_port) {
-        return (int)$found_exposed_port->value();
+        return (int) $found_exposed_port->value();
     }
+
     return null;
 }
 
-function defaultLabels($id, $name, $pull_request_id = 0, string $type = 'application', $subType = null, $subId = null)
+function defaultDatabaseLabels($database)
 {
     $labels = collect([]);
     $labels->push('coolify.managed=true');
-    $labels->push('coolify.version=' . config('version'));
-    $labels->push("coolify." . $type . "Id=" . $id);
-    $labels->push("coolify.type=$type");
-    $labels->push('coolify.name=' . $name);
-    $labels->push('coolify.pullRequestId=' . $pull_request_id);
-    if ($type === 'service') {
-        $subId && $labels->push('coolify.service.subId=' . $subId);
-        $subType && $labels->push('coolify.service.subType=' . $subType);
-    }
+    $labels->push('coolify.type=database');
+    $labels->push('coolify.databaseId='.$database->id);
+    $labels->push('coolify.resourceName='.Str::slug($database->name));
+    $labels->push('coolify.serviceName='.Str::slug($database->name));
+    $labels->push('coolify.projectName='.Str::slug($database->project()->name));
+    $labels->push('coolify.environmentName='.Str::slug($database->environment->name));
+    $labels->push('coolify.database.subType='.$database->type());
+
     return $labels;
 }
+
+function defaultLabels($id, $name, string $projectName, string $resourceName, string $environment, $pull_request_id = 0, string $type = 'application', $subType = null, $subId = null, $subName = null)
+{
+    $labels = collect([]);
+    $labels->push('coolify.managed=true');
+    $labels->push('coolify.version='.config('constants.coolify.version'));
+    $labels->push('coolify.'.$type.'Id='.$id);
+    $labels->push("coolify.type=$type");
+    $labels->push('coolify.name='.$name);
+    $labels->push('coolify.resourceName='.Str::slug($resourceName));
+    $labels->push('coolify.projectName='.Str::slug($projectName));
+    $labels->push('coolify.serviceName='.Str::slug($subName ?? $resourceName));
+    $labels->push('coolify.environmentName='.Str::slug($environment));
+
+    $labels->push('coolify.pullRequestId='.$pull_request_id);
+    if ($type === 'service') {
+        $subId && $labels->push('coolify.service.subId='.$subId);
+        $subType && $labels->push('coolify.service.subType='.$subType);
+        $subName && $labels->push('coolify.service.subName='.Str::slug($subName));
+    }
+
+    return $labels;
+}
+
 function generateServiceSpecificFqdns(ServiceApplication|Application $resource)
 {
-    if ($resource->getMorphClass() === 'App\Models\ServiceApplication') {
-        $uuid = $resource->uuid;
-        $server = $resource->service->server;
-        $environment_variables = $resource->service->environment_variables;
+    if ($resource->getMorphClass() === \App\Models\ServiceApplication::class) {
+        $uuid = data_get($resource, 'uuid');
+        $server = data_get($resource, 'service.server');
+        $environment_variables = data_get($resource, 'service.environment_variables');
         $type = $resource->serviceType();
-    } else if ($resource->getMorphClass() === 'App\Models\Application') {
-        $uuid = $resource->uuid;
-        $server = $resource->destination->server;
-        $environment_variables = $resource->environment_variables;
+    } elseif ($resource->getMorphClass() === \App\Models\Application::class) {
+        $uuid = data_get($resource, 'uuid');
+        $server = data_get($resource, 'destination.server');
+        $environment_variables = data_get($resource, 'environment_variables');
         $type = $resource->serviceType();
     }
     if (is_null($server) || is_null($type)) {
@@ -192,49 +248,54 @@ function generateServiceSpecificFqdns(ServiceApplication|Application $resource)
         case $type?->contains('minio'):
             $MINIO_BROWSER_REDIRECT_URL = $variables->where('key', 'MINIO_BROWSER_REDIRECT_URL')->first();
             $MINIO_SERVER_URL = $variables->where('key', 'MINIO_SERVER_URL')->first();
+
             if (is_null($MINIO_BROWSER_REDIRECT_URL) || is_null($MINIO_SERVER_URL)) {
-                return $payload;
+                return collect([]);
             }
-            if (is_null($MINIO_BROWSER_REDIRECT_URL?->value)) {
-                $MINIO_BROWSER_REDIRECT_URL?->update([
-                    "value" => generateFqdn($server, 'console-' . $uuid)
+
+            if (str($MINIO_BROWSER_REDIRECT_URL->value ?? '')->isEmpty()) {
+                $MINIO_BROWSER_REDIRECT_URL->update([
+                    'value' => generateFqdn($server, 'console-'.$uuid, true),
                 ]);
             }
-            if (is_null($MINIO_SERVER_URL?->value)) {
-                $MINIO_SERVER_URL?->update([
-                    "value" => generateFqdn($server, 'minio-' . $uuid)
+            if (str($MINIO_SERVER_URL->value ?? '')->isEmpty()) {
+                $MINIO_SERVER_URL->update([
+                    'value' => generateFqdn($server, 'minio-'.$uuid, true),
                 ]);
             }
             $payload = collect([
-                $MINIO_BROWSER_REDIRECT_URL->value . ':9001',
-                $MINIO_SERVER_URL->value . ':9000',
+                $MINIO_BROWSER_REDIRECT_URL->value.':9001',
+                $MINIO_SERVER_URL->value.':9000',
             ]);
             break;
         case $type?->contains('logto'):
             $LOGTO_ENDPOINT = $variables->where('key', 'LOGTO_ENDPOINT')->first();
             $LOGTO_ADMIN_ENDPOINT = $variables->where('key', 'LOGTO_ADMIN_ENDPOINT')->first();
+
             if (is_null($LOGTO_ENDPOINT) || is_null($LOGTO_ADMIN_ENDPOINT)) {
-                return $payload;
+                return collect([]);
             }
-            if (is_null($LOGTO_ENDPOINT?->value)) {
-                $LOGTO_ENDPOINT?->update([
-                    "value" => generateFqdn($server, 'logto-' . $uuid)
+
+            if (str($LOGTO_ENDPOINT->value ?? '')->isEmpty()) {
+                $LOGTO_ENDPOINT->update([
+                    'value' => generateFqdn($server, 'logto-'.$uuid),
                 ]);
             }
-            if (is_null($LOGTO_ADMIN_ENDPOINT?->value)) {
-                $LOGTO_ADMIN_ENDPOINT?->update([
-                    "value" => generateFqdn($server, 'logto-admin-' . $uuid)
+            if (str($LOGTO_ADMIN_ENDPOINT->value ?? '')->isEmpty()) {
+                $LOGTO_ADMIN_ENDPOINT->update([
+                    'value' => generateFqdn($server, 'logto-admin-'.$uuid),
                 ]);
             }
             $payload = collect([
-                $LOGTO_ENDPOINT->value . ':3001',
-                $LOGTO_ADMIN_ENDPOINT->value . ':3002',
+                $LOGTO_ENDPOINT->value.':3001',
+                $LOGTO_ADMIN_ENDPOINT->value.':3002',
             ]);
             break;
     }
+
     return $payload;
 }
-function fqdnLabelsForCaddy(string $network, string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null)
+function fqdnLabelsForCaddy(string $network, string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, ?string $image = null, string $redirect_direction = 'both', ?string $predefinedPort = null)
 {
     $labels = collect([]);
     if ($serviceLabels) {
@@ -243,86 +304,83 @@ function fqdnLabelsForCaddy(string $network, string $uuid, Collection $domains, 
         $labels->push("caddy_ingress_network={$network}");
     }
     foreach ($domains as $loop => $domain) {
-        $loop = $loop;
         $url = Url::fromString($domain);
         $host = $url->getHost();
         $path = $url->getPath();
-        // $stripped_path = str($path)->replaceEnd('/', '');
-
+        $host_without_www = str($host)->replace('www.', '');
         $schema = $url->getScheme();
         $port = $url->getPort();
-        if (is_null($port) && !is_null($onlyPort)) {
+        $handle = 'handle_path';
+        if (! $is_stripprefix_enabled) {
+            $handle = 'handle';
+        }
+        if (is_null($port) && ! is_null($onlyPort)) {
             $port = $onlyPort;
+        }
+        if (is_null($port) && $predefinedPort) {
+            $port = $predefinedPort;
         }
         $labels->push("caddy_{$loop}={$schema}://{$host}");
         $labels->push("caddy_{$loop}.header=-Server");
         $labels->push("caddy_{$loop}.try_files={path} /index.html /index.php");
 
         if ($port) {
-            $labels->push("caddy_{$loop}.handle_path.{$loop}_reverse_proxy={{upstreams $port}}");
+            $labels->push("caddy_{$loop}.{$handle}.{$loop}_reverse_proxy={{upstreams $port}}");
         } else {
-            $labels->push("caddy_{$loop}.handle_path.{$loop}_reverse_proxy={{upstreams}}");
+            $labels->push("caddy_{$loop}.{$handle}.{$loop}_reverse_proxy={{upstreams}}");
         }
-        $labels->push("caddy_{$loop}.handle_path={$path}*");
+        $labels->push("caddy_{$loop}.{$handle}={$path}*");
         if ($is_gzip_enabled) {
             $labels->push("caddy_{$loop}.encode=zstd gzip");
+        }
+        if ($redirect_direction === 'www' && ! str($host)->startsWith('www.')) {
+            $labels->push("caddy_{$loop}.redir={$schema}://www.{$host}{uri}");
+        }
+        if ($redirect_direction === 'non-www' && str($host)->startsWith('www.')) {
+            $labels->push("caddy_{$loop}.redir={$schema}://{$host_without_www}{uri}");
         }
         if (isDev()) {
             // $labels->push("caddy_{$loop}.tls=internal");
         }
     }
+
     return $labels->sort();
 }
-function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, bool $generate_unique_uuid = false)
+function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, bool $generate_unique_uuid = false, ?string $image = null, string $redirect_direction = 'both')
 {
     $labels = collect([]);
     $labels->push('traefik.enable=true');
-    $labels->push("traefik.http.middlewares.gzip.compress=true");
-    $labels->push("traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https");
+    $labels->push('traefik.http.middlewares.gzip.compress=true');
+    $labels->push('traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https');
 
-    $basic_auth = false;
-    $basic_auth_middleware = null;
-    $redirect = false;
-    $redirect_middleware = null;
+    $middlewares_from_labels = collect([]);
+
     if ($serviceLabels) {
-        $basic_auth = $serviceLabels->contains(function ($value) {
-            return str_contains($value, 'basicauth');
-        });
-        if ($basic_auth) {
-            $basic_auth_middleware = $serviceLabels
-                ->map(function ($item) {
-                    if (preg_match('/traefik\.http\.middlewares\.(.*?)\.basicauth\.users/', $item, $matches)) {
-                        return $matches[1];
-                    }
-                })
-                ->filter()
-                ->first();
-        }
-        $redirect = $serviceLabels->contains(function ($value) {
-            return str_contains($value, 'redirectregex');
-        });
-        if ($redirect) {
-            $redirect_middleware = $serviceLabels
-                ->map(function ($item) {
-                    if (preg_match('/traefik\.http\.middlewares\.(.*?)\.redirectregex\.regex/', $item, $matches)) {
-                        return $matches[1];
-                    }
-                })
-                ->filter()
-                ->first();
-        }
+        $middlewares_from_labels = $serviceLabels->map(function ($item) {
+            if (preg_match('/traefik\.http\.middlewares\.(.*?)(\.|$)/', $item, $matches)) {
+                return $matches[1];
+            }
+            if (preg_match('/coolify\.traefik\.middlewares=(.*)/', $item, $matches)) {
+                return explode(',', $matches[1]);
+            }
+
+            return null;
+        })->flatten()
+            ->filter()
+            ->unique();
     }
     foreach ($domains as $loop => $domain) {
         try {
             if ($generate_unique_uuid) {
-                $uuid = new Cuid2(7);
+                $uuid = new Cuid2;
             }
+
             $url = Url::fromString($domain);
             $host = $url->getHost();
             $path = $url->getPath();
             $schema = $url->getScheme();
             $port = $url->getPort();
-            if (is_null($port) && !is_null($onlyPort)) {
+            if (is_null($port) && ! is_null($onlyPort)) {
                 $port = $onlyPort;
             }
             $http_label = "http-{$loop}-{$uuid}";
@@ -331,7 +389,26 @@ function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_
                 $http_label = "http-{$loop}-{$uuid}-{$service_name}";
                 $https_label = "https-{$loop}-{$uuid}-{$service_name}";
             }
+            if (str($image)->contains('ghost')) {
+                $labels->push("traefik.http.middlewares.redir-ghost-{$uuid}.redirectregex.regex=^{$path}/(.*)");
+                $labels->push("traefik.http.middlewares.redir-ghost-{$uuid}.redirectregex.replacement=/$1");
+                $labels->push("caddy_{$loop}.handle_path.{$loop}_redir-ghost-{$uuid}.handler=rewrite");
+                $labels->push("caddy_{$loop}.handle_path.{$loop}_redir-ghost-{$uuid}.rewrite.regexp=^{$path}/(.*)");
+                $labels->push("caddy_{$loop}.handle_path.{$loop}_redir-ghost-{$uuid}.rewrite.replacement=/$1");
+            }
 
+            $to_www_name = "{$loop}-{$uuid}-to-www";
+            $to_non_www_name = "{$loop}-{$uuid}-to-non-www";
+            $redirect_to_non_www = [
+                "traefik.http.middlewares.{$to_non_www_name}.redirectregex.regex=^(http|https)://www\.(.+)",
+                "traefik.http.middlewares.{$to_non_www_name}.redirectregex.replacement=\${1}://\${2}",
+                "traefik.http.middlewares.{$to_non_www_name}.redirectregex.permanent=false",
+            ];
+            $redirect_to_www = [
+                "traefik.http.middlewares.{$to_www_name}.redirectregex.regex=^(http|https)://(?:www\.)?(.+)",
+                "traefik.http.middlewares.{$to_www_name}.redirectregex.replacement=\${1}://www.\${2}",
+                "traefik.http.middlewares.{$to_www_name}.redirectregex.permanent=false",
+            ];
             if ($schema === 'https') {
                 // Set labels for https
                 $labels->push("traefik.http.routers.{$https_label}.rule=Host(`{$host}`) && PathPrefix(`{$path}`)");
@@ -341,19 +418,29 @@ function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_
                     $labels->push("traefik.http.services.{$https_label}.loadbalancer.server.port=$port");
                 }
                 if ($path !== '/') {
-                    if ($is_stripprefix_enabled) {
+                    // Middleware handling
+                    $middlewares = collect([]);
+                    if ($is_stripprefix_enabled && ! str($image)->contains('ghost')) {
                         $labels->push("traefik.http.middlewares.{$https_label}-stripprefix.stripprefix.prefixes={$path}");
-                        $middlewares = collect(["{$https_label}-stripprefix"]);
+                        $middlewares->push("{$https_label}-stripprefix");
                     }
                     if ($is_gzip_enabled) {
                         $middlewares->push('gzip');
                     }
-                    if ($basic_auth && $basic_auth_middleware) {
-                        $middlewares->push($basic_auth_middleware);
+                    if (str($image)->contains('ghost')) {
+                        $middlewares->push("redir-ghost-{$uuid}");
                     }
-                    if ($redirect && $redirect_middleware) {
-                        $middlewares->push($redirect_middleware);
+                    if ($redirect_direction === 'non-www' && str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_non_www);
+                        $middlewares->push($to_non_www_name);
                     }
+                    if ($redirect_direction === 'www' && ! str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_www);
+                        $middlewares->push($to_www_name);
+                    }
+                    $middlewares_from_labels->each(function ($middleware_name) use ($middlewares) {
+                        $middlewares->push($middleware_name);
+                    });
                     if ($middlewares->isNotEmpty()) {
                         $middlewares = $middlewares->join(',');
                         $labels->push("traefik.http.routers.{$https_label}.middlewares={$middlewares}");
@@ -363,12 +450,20 @@ function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_
                     if ($is_gzip_enabled) {
                         $middlewares->push('gzip');
                     }
-                    if ($basic_auth && $basic_auth_middleware) {
-                        $middlewares->push($basic_auth_middleware);
+                    if (str($image)->contains('ghost')) {
+                        $middlewares->push("redir-ghost-{$uuid}");
                     }
-                    if ($redirect && $redirect_middleware) {
-                        $middlewares->push($redirect_middleware);
+                    if ($redirect_direction === 'non-www' && str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_non_www);
+                        $middlewares->push($to_non_www_name);
                     }
+                    if ($redirect_direction === 'www' && ! str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_www);
+                        $middlewares->push($to_www_name);
+                    }
+                    $middlewares_from_labels->each(function ($middleware_name) use ($middlewares) {
+                        $middlewares->push($middleware_name);
+                    });
                     if ($middlewares->isNotEmpty()) {
                         $middlewares = $middlewares->join(',');
                         $labels->push("traefik.http.routers.{$https_label}.middlewares={$middlewares}");
@@ -396,19 +491,28 @@ function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_
                     $labels->push("traefik.http.routers.{$http_label}.service={$http_label}");
                 }
                 if ($path !== '/') {
-                    if ($is_stripprefix_enabled) {
+                    $middlewares = collect([]);
+                    if ($is_stripprefix_enabled && ! str($image)->contains('ghost')) {
                         $labels->push("traefik.http.middlewares.{$http_label}-stripprefix.stripprefix.prefixes={$path}");
-                        $middlewares = collect(["{$http_label}-stripprefix"]);
+                        $middlewares->push("{$http_label}-stripprefix");
                     }
                     if ($is_gzip_enabled) {
                         $middlewares->push('gzip');
                     }
-                    if ($basic_auth && $basic_auth_middleware) {
-                        $middlewares->push($basic_auth_middleware);
+                    if (str($image)->contains('ghost')) {
+                        $middlewares->push("redir-ghost-{$uuid}");
                     }
-                    if ($redirect && $redirect_middleware) {
-                        $middlewares->push($redirect_middleware);
+                    if ($redirect_direction === 'non-www' && str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_non_www);
+                        $middlewares->push($to_non_www_name);
                     }
+                    if ($redirect_direction === 'www' && ! str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_www);
+                        $middlewares->push($to_www_name);
+                    }
+                    $middlewares_from_labels->each(function ($middleware_name) use ($middlewares) {
+                        $middlewares->push($middleware_name);
+                    });
                     if ($middlewares->isNotEmpty()) {
                         $middlewares = $middlewares->join(',');
                         $labels->push("traefik.http.routers.{$http_label}.middlewares={$middlewares}");
@@ -418,22 +522,31 @@ function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_
                     if ($is_gzip_enabled) {
                         $middlewares->push('gzip');
                     }
-                    if ($basic_auth && $basic_auth_middleware) {
-                        $middlewares->push($basic_auth_middleware);
+                    if (str($image)->contains('ghost')) {
+                        $middlewares->push("redir-ghost-{$uuid}");
                     }
-                    if ($redirect && $redirect_middleware) {
-                        $middlewares->push($redirect_middleware);
+                    if ($redirect_direction === 'non-www' && str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_non_www);
+                        $middlewares->push($to_non_www_name);
                     }
+                    if ($redirect_direction === 'www' && ! str($host)->startsWith('www.')) {
+                        $labels = $labels->merge($redirect_to_www);
+                        $middlewares->push($to_www_name);
+                    }
+                    $middlewares_from_labels->each(function ($middleware_name) use ($middlewares) {
+                        $middlewares->push($middleware_name);
+                    });
                     if ($middlewares->isNotEmpty()) {
                         $middlewares = $middlewares->join(',');
                         $labels->push("traefik.http.routers.{$http_label}.middlewares={$middlewares}");
                     }
                 }
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             continue;
         }
     }
+
     return $labels->sort();
 }
 function generateLabelsApplication(Application $application, ?ApplicationPreview $preview = null): array
@@ -446,35 +559,113 @@ function generateLabelsApplication(Application $application, ?ApplicationPreview
     $pull_request_id = data_get($preview, 'pull_request_id', 0);
     $appUuid = $application->uuid;
     if ($pull_request_id !== 0) {
-        $appUuid = $appUuid . '-pr-' . $pull_request_id;
+        $appUuid = $appUuid.'-pr-'.$pull_request_id;
     }
     $labels = collect([]);
-    if ($application->fqdn) {
-        if ($pull_request_id !== 0) {
-            $domains = Str::of(data_get($preview, 'fqdn'))->explode(',');
-        } else {
-            $domains = Str::of(data_get($application, 'fqdn'))->explode(',');
+    if ($pull_request_id === 0) {
+        if ($application->fqdn) {
+            $domains = str(data_get($application, 'fqdn'))->explode(',');
+            $shouldGenerateLabelsExactly = $application->destination->server->settings->generate_exact_labels;
+            if ($shouldGenerateLabelsExactly) {
+                switch ($application->destination->server->proxyType()) {
+                    case ProxyTypes::TRAEFIK->value:
+                        $labels = $labels->merge(fqdnLabelsForTraefik(
+                            uuid: $appUuid,
+                            domains: $domains,
+                            onlyPort: $onlyPort,
+                            is_force_https_enabled: $application->isForceHttpsEnabled(),
+                            is_gzip_enabled: $application->isGzipEnabled(),
+                            is_stripprefix_enabled: $application->isStripprefixEnabled(),
+                            redirect_direction: $application->redirect
+                        ));
+                        break;
+                    case ProxyTypes::CADDY->value:
+                        $labels = $labels->merge(fqdnLabelsForCaddy(
+                            network: $application->destination->network,
+                            uuid: $appUuid,
+                            domains: $domains,
+                            onlyPort: $onlyPort,
+                            is_force_https_enabled: $application->isForceHttpsEnabled(),
+                            is_gzip_enabled: $application->isGzipEnabled(),
+                            is_stripprefix_enabled: $application->isStripprefixEnabled(),
+                            redirect_direction: $application->redirect
+                        ));
+                        break;
+                }
+            } else {
+                $labels = $labels->merge(fqdnLabelsForTraefik(
+                    uuid: $appUuid,
+                    domains: $domains,
+                    onlyPort: $onlyPort,
+                    is_force_https_enabled: $application->isForceHttpsEnabled(),
+                    is_gzip_enabled: $application->isGzipEnabled(),
+                    is_stripprefix_enabled: $application->isStripprefixEnabled(),
+                    redirect_direction: $application->redirect
+                ));
+                $labels = $labels->merge(fqdnLabelsForCaddy(
+                    network: $application->destination->network,
+                    uuid: $appUuid,
+                    domains: $domains,
+                    onlyPort: $onlyPort,
+                    is_force_https_enabled: $application->isForceHttpsEnabled(),
+                    is_gzip_enabled: $application->isGzipEnabled(),
+                    is_stripprefix_enabled: $application->isStripprefixEnabled(),
+                    redirect_direction: $application->redirect
+                ));
+            }
         }
-        // Add Traefik labels
-        $labels = $labels->merge(fqdnLabelsForTraefik(
-            uuid: $appUuid,
-            domains: $domains,
-            onlyPort: $onlyPort,
-            is_force_https_enabled: $application->isForceHttpsEnabled(),
-            is_gzip_enabled: $application->isGzipEnabled(),
-            is_stripprefix_enabled: $application->isStripprefixEnabled()
-        ));
-        // Add Caddy labels
-        $labels = $labels->merge(fqdnLabelsForCaddy(
-            network: $application->destination->network,
-            uuid: $appUuid,
-            domains: $domains,
-            onlyPort: $onlyPort,
-            is_force_https_enabled: $application->isForceHttpsEnabled(),
-            is_gzip_enabled: $application->isGzipEnabled(),
-            is_stripprefix_enabled: $application->isStripprefixEnabled()
-        ));
+    } else {
+        if (data_get($preview, 'fqdn')) {
+            $domains = str(data_get($preview, 'fqdn'))->explode(',');
+        } else {
+            $domains = collect([]);
+        }
+        $shouldGenerateLabelsExactly = $application->destination->server->settings->generate_exact_labels;
+        if ($shouldGenerateLabelsExactly) {
+            switch ($application->destination->server->proxyType()) {
+                case ProxyTypes::TRAEFIK->value:
+                    $labels = $labels->merge(fqdnLabelsForTraefik(
+                        uuid: $appUuid,
+                        domains: $domains,
+                        onlyPort: $onlyPort,
+                        is_force_https_enabled: $application->isForceHttpsEnabled(),
+                        is_gzip_enabled: $application->isGzipEnabled(),
+                        is_stripprefix_enabled: $application->isStripprefixEnabled()
+                    ));
+                    break;
+                case ProxyTypes::CADDY->value:
+                    $labels = $labels->merge(fqdnLabelsForCaddy(
+                        network: $application->destination->network,
+                        uuid: $appUuid,
+                        domains: $domains,
+                        onlyPort: $onlyPort,
+                        is_force_https_enabled: $application->isForceHttpsEnabled(),
+                        is_gzip_enabled: $application->isGzipEnabled(),
+                        is_stripprefix_enabled: $application->isStripprefixEnabled()
+                    ));
+                    break;
+            }
+        } else {
+            $labels = $labels->merge(fqdnLabelsForTraefik(
+                uuid: $appUuid,
+                domains: $domains,
+                onlyPort: $onlyPort,
+                is_force_https_enabled: $application->isForceHttpsEnabled(),
+                is_gzip_enabled: $application->isGzipEnabled(),
+                is_stripprefix_enabled: $application->isStripprefixEnabled()
+            ));
+            $labels = $labels->merge(fqdnLabelsForCaddy(
+                network: $application->destination->network,
+                uuid: $appUuid,
+                domains: $domains,
+                onlyPort: $onlyPort,
+                is_force_https_enabled: $application->isForceHttpsEnabled(),
+                is_gzip_enabled: $application->isGzipEnabled(),
+                is_stripprefix_enabled: $application->isStripprefixEnabled()
+            ));
+        }
     }
+
     return $labels->all();
 }
 
@@ -493,10 +684,11 @@ function isDatabaseImage(?string $image = null)
     if (collect(DATABASE_DOCKER_IMAGES)->contains($imageName)) {
         return true;
     }
+
     return false;
 }
 
-function convert_docker_run_to_compose(?string $custom_docker_run_options = null)
+function convertDockerRunToCompose(?string $custom_docker_run_options = null)
 {
     $options = [];
     $compose_options = collect([]);
@@ -508,21 +700,30 @@ function convert_docker_run_to_compose(?string $custom_docker_run_options = null
         '--sysctl',
         '--ulimit',
         '--device',
+        '--shm-size',
     ]);
     $mapping = collect([
         '--cap-add' => 'cap_add',
         '--cap-drop' => 'cap_drop',
         '--security-opt' => 'security_opt',
         '--sysctl' => 'sysctls',
-        '--ulimit' => 'ulimits',
         '--device' => 'devices',
         '--init' => 'init',
         '--ulimit' => 'ulimits',
         '--privileged' => 'privileged',
         '--ip' => 'ip',
+        '--shm-size' => 'shm_size',
+        '--gpus' => 'gpus',
     ]);
     foreach ($matches as $match) {
         $option = $match[1];
+        if ($option === '--gpus') {
+            $regexForParsingDeviceIds = '/device=([0-9A-Za-z-,]+)/';
+            preg_match($regexForParsingDeviceIds, $custom_docker_run_options, $device_matches);
+            $value = $device_matches[1] ?? 'all';
+            $options[$option][] = $value;
+            $options[$option] = array_unique($options[$option]);
+        }
         if (isset($match[2]) && $match[2] !== '') {
             $value = $match[2];
             $options[$option][] = $value;
@@ -535,7 +736,7 @@ function convert_docker_run_to_compose(?string $custom_docker_run_options = null
     $options = collect($options);
     // Easily get mappings from https://github.com/composerize/composerize/blob/master/packages/composerize/src/mappings.js
     foreach ($options as $option => $value) {
-        if (!data_get($mapping, $option)) {
+        if (! data_get($mapping, $option)) {
             continue;
         }
         if ($option === '--ulimit') {
@@ -549,7 +750,7 @@ function convert_docker_run_to_compose(?string $custom_docker_run_options = null
                     $hard_limit = $limits[1];
                     $ulimits->put($type, [
                         'soft' => $soft_limit,
-                        'hard' => $hard_limit
+                        'hard' => $hard_limit,
                     ]);
                 } else {
                     $soft_limit = $ulimit[1];
@@ -559,22 +760,71 @@ function convert_docker_run_to_compose(?string $custom_docker_run_options = null
                 }
             });
             $compose_options->put($mapping[$option], $ulimits);
+        } elseif ($option === '--shm-size') {
+            if (! is_null($value) && is_array($value) && count($value) > 0) {
+                $compose_options->put($mapping[$option], $value[0]);
+            }
+        } elseif ($option === '--gpus') {
+            $payload = [
+                'driver' => 'nvidia',
+                'capabilities' => ['gpu'],
+            ];
+            if (! is_null($value) && is_array($value) && count($value) > 0) {
+                if (str($value[0]) != 'all') {
+                    if (str($value[0])->contains(',')) {
+                        $payload['device_ids'] = str($value[0])->explode(',')->toArray();
+                    } else {
+                        $payload['device_ids'] = [$value[0]];
+                    }
+                }
+            }
+            ray($payload);
+            $compose_options->put('deploy', [
+                'resources' => [
+                    'reservations' => [
+                        'devices' => [$payload],
+                    ],
+                ],
+            ]);
         } else {
             if ($list_options->contains($option)) {
                 if ($compose_options->has($mapping[$option])) {
-                    $compose_options->put($mapping[$option], $options->get($mapping[$option]) . ',' . $value);
+                    $compose_options->put($mapping[$option], $options->get($mapping[$option]).','.$value);
                 } else {
                     $compose_options->put($mapping[$option], $value);
                 }
+
                 continue;
             } else {
                 $compose_options->put($mapping[$option], $value);
+
                 continue;
             }
             $compose_options->forget($option);
         }
     }
+
     return $compose_options->toArray();
+}
+
+function generateCustomDockerRunOptionsForDatabases($docker_run_options, $docker_compose, $container_name, $network)
+{
+    $ipv4 = data_get($docker_run_options, 'ip.0');
+    $ipv6 = data_get($docker_run_options, 'ip6.0');
+    data_forget($docker_run_options, 'ip');
+    data_forget($docker_run_options, 'ip6');
+    if ($ipv4 || $ipv6) {
+        data_forget($docker_compose['services'][$container_name], 'networks');
+    }
+    if ($ipv4) {
+        $docker_compose['services'][$container_name]['networks'][$network]['ipv4_address'] = $ipv4;
+    }
+    if ($ipv6) {
+        $docker_compose['services'][$container_name]['networks'][$network]['ipv6_address'] = $ipv6;
+    }
+    $docker_compose['services'][$container_name] = array_merge_recursive($docker_compose['services'][$container_name], $docker_run_options);
+
+    return $docker_compose;
 }
 
 function validateComposeFile(string $compose, int $server_id): string|Throwable
@@ -589,9 +839,11 @@ function validateComposeFile(string $compose, int $server_id): string|Throwable
             "docker compose -f /tmp/{$uuid}.yml config",
         ], $server);
         ray($output);
+
         return 'OK';
     } catch (\Throwable $e) {
         ray($e);
+
         return $e->getMessage();
     } finally {
         instant_remote_process([
@@ -602,13 +854,15 @@ function validateComposeFile(string $compose, int $server_id): string|Throwable
 
 function escapeEnvVariables($value)
 {
-    $search = array("\\", "\r", "\t", "\x0", '"', "'");
-    $replace = array("\\\\", "\\r", "\\t", "\\0", '\"', "\'");
+    $search = ['\\', "\r", "\t", "\x0", '"', "'"];
+    $replace = ['\\\\', '\\r', '\\t', '\\0', '\"', "\'"];
+
     return str_replace($search, $replace, $value);
 }
 function escapeDollarSign($value)
 {
-    $search = array('$');
-    $replace = array('$$');
+    $search = ['$'];
+    $replace = ['$$'];
+
     return str_replace($search, $replace, $value);
 }

@@ -2,39 +2,53 @@
 
 namespace App\Livewire\Project\Database;
 
+use App\Models\ScheduledDatabaseBackup;
 use Livewire\Component;
 
 class ScheduledBackups extends Component
 {
     public $database;
+
     public $parameters;
+
     public $type;
-    public $selectedBackup;
+
+    public ?ScheduledDatabaseBackup $selectedBackup;
+
     public $selectedBackupId;
+
     public $s3s;
+
     protected $listeners = ['refreshScheduledBackups'];
+
     protected $queryString = ['selectedBackupId'];
 
     public function mount(): void
     {
         if ($this->selectedBackupId) {
-            $this->setSelectedBackup($this->selectedBackupId);
+            $this->setSelectedBackup($this->selectedBackupId, true);
         }
         $this->parameters = get_route_parameters();
-        if ($this->database->getMorphClass() === 'App\Models\ServiceDatabase') {
+        if ($this->database->getMorphClass() === \App\Models\ServiceDatabase::class) {
             $this->type = 'service-database';
         } else {
             $this->type = 'database';
         }
         $this->s3s = currentTeam()->s3s;
     }
-    public function setSelectedBackup($backupId) {
+
+    public function setSelectedBackup($backupId, $force = false)
+    {
+        if ($this->selectedBackupId === $backupId && ! $force) {
+            return;
+        }
         $this->selectedBackupId = $backupId;
-        $this->selectedBackup = $this->database->scheduledBackups->find($this->selectedBackupId);
+        $this->selectedBackup = $this->database->scheduledBackups->find($backupId);
         if (is_null($this->selectedBackup)) {
             $this->selectedBackupId = null;
         }
     }
+
     public function delete($scheduled_backup_id): void
     {
         $this->database->scheduledBackups->find($scheduled_backup_id)->delete();

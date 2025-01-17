@@ -1,14 +1,19 @@
-<nav class="flex flex-col flex-1 bg-white border-r dark:border-coolgray-200 dark:bg-base" x-data="{
+<nav class="flex flex-col flex-1 px-2 bg-white border-r dark:border-coolgray-200 dark:bg-base" x-data="{
     switchWidth() {
             if (this.full === 'full') {
-                localStorage.removeItem('pageWidth');
+                localStorage.setItem('pageWidth', 'center');
             } else {
                 localStorage.setItem('pageWidth', 'full');
             }
             window.location.reload();
         },
+        setZoom(zoom) {
+            localStorage.setItem('zoom', zoom);
+            window.location.reload();
+        },
         init() {
             this.full = localStorage.getItem('pageWidth');
+            this.zoom = localStorage.getItem('zoom');
             window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
                 const userSettings = localStorage.getItem('theme');
                 if (userSettings !== 'system') {
@@ -21,6 +26,7 @@
                 }
             });
             this.queryTheme();
+            this.checkZoom();
         },
         setTheme(type) {
             this.theme = type;
@@ -44,9 +50,33 @@
                 this.theme = 'system';
                 document.documentElement.classList.remove('dark');
             }
+        },
+        checkZoom() {
+            if (this.zoom === null) {
+                this.setZoom(100);
+            }
+            if (this.zoom === '90') {
+                const style = document.createElement('style');
+                style.textContent = `
+                    html {
+                        font-size: 93.75%;
+                    }
+
+                    :root {
+                        --vh: 1vh;
+                    }
+
+                    @media (min-width: 1024px) {
+                        html {
+                            font-size: 87.5%;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
         }
 }">
-    <div class="flex pt-6 pb-4 pl-3">
+    <div class="flex pt-6 pb-4 pl-2">
         <div class="flex flex-col w-full">
             <div class="text-2xl font-bold tracking-wide dark:text-white">Coolify</div>
             <x-version />
@@ -69,13 +99,18 @@
                     </div>
                 </x-slot:title>
                 <div class="flex flex-col gap-1">
-                    <div class="mb-1 font-bold border-b dark:border-coolgray-500 dark:text-white text-md">Color</div>
+                    <div class="font-bold border-b dark:border-coolgray-500 dark:text-white text-md">Color</div>
                     <button @click="setTheme('dark')" class="px-1 dropdown-item-no-padding">Dark</button>
                     <button @click="setTheme('light')" class="px-1 dropdown-item-no-padding">Light</button>
                     <button @click="setTheme('system')" class="px-1 dropdown-item-no-padding">System</button>
                     <div class="my-1 font-bold border-b dark:border-coolgray-500 dark:text-white text-md">Width</div>
-                    <button @click="switchWidth()" class="px-1 dropdown-item-no-padding" x-show="full">Center</button>
-                    <button @click="switchWidth()" class="px-1 dropdown-item-no-padding" x-show="!full">Full</button>
+                    <button @click="switchWidth()" class="px-1 dropdown-item-no-padding"
+                        x-show="full === 'full'">Center</button>
+                    <button @click="switchWidth()" class="px-1 dropdown-item-no-padding"
+                        x-show="full === 'center'">Full</button>
+                    <div class="my-1 font-bold border-b dark:border-coolgray-500 dark:text-white text-md">Zoom</div>
+                    <button @click="setZoom(100)" class="px-1 dropdown-item-no-padding">100%</button>
+                    <button @click="setZoom(90)" class="px-1 dropdown-item-no-padding">90%</button>
                 </div>
             </x-dropdown>
         </div>
@@ -88,7 +123,7 @@
             <ul role="list" class="flex flex-col h-full space-y-1.5">
                 @if (isSubscribed() || !isCloud())
                     <li>
-                        <a title="Dashboard" href="/"
+                        <a title="Dashboard" href="/" wire:navigate
                             class="{{ request()->is('/') ? 'menu-item-active menu-item' : 'menu-item' }}">
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor">
@@ -99,7 +134,7 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Projects"
+                        <a title="Projects" wire:navigate
                             class="{{ request()->is('project/*') || request()->is('projects') ? 'menu-item menu-item-active' : 'menu-item' }}"
                             href="/projects">
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 24 24"
@@ -114,7 +149,7 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Servers"
+                        <a title="Servers" wire:navigate
                             class="{{ request()->is('server/*') || request()->is('servers') ? 'menu-item menu-item-active' : 'menu-item' }}"
                             href="/servers">
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 24 24"
@@ -133,7 +168,7 @@
                     </li>
 
                     <li>
-                        <a title="Sources"
+                        <a title="Sources" wire:navigate
                             class="{{ request()->is('source*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('source.all') }}">
                             <svg class="icon" viewBox="0 0 15 15" xmlns="http://www.w3.org/2000/svg">
@@ -144,9 +179,9 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Destinations"
+                        <a title="Destinations" wire:navigate
                             class="{{ request()->is('destination*') ? 'menu-item-active menu-item' : 'menu-item' }}"
-                            href="{{ route('destination.all') }}">
+                            href="{{ route('destination.index') }}">
 
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 24 24">
                                 <path fill="none" stroke="currentColor" stroke-linecap="round"
@@ -157,12 +192,12 @@
                         </a>
                     </li>
                     <li>
-                        <a title="S3 Storages"
+                        <a title="S3 Storages" wire:navigate
                             class="{{ request()->is('storages*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('storage.index') }}">
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 24 24">
-                                <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                                    stroke-width="2">
+                                <g fill="none" stroke="currentColor" stroke-linecap="round"
+                                    stroke-linejoin="round" stroke-width="2">
                                     <path d="M4 6a8 3 0 1 0 16 0A8 3 0 1 0 4 6" />
                                     <path d="M4 6v6a8 3 0 0 0 16 0V6" />
                                     <path d="M4 12v6a8 3 0 0 0 16 0v-6" />
@@ -172,7 +207,7 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Shared variables"
+                        <a title="Shared variables" wire:navigate
                             class="{{ request()->is('shared-variables*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('shared-variables.index') }}">
                             <svg xmlns="http://www.w3.org/2000/svg" class="icon" viewBox="0 0 24 24">
@@ -187,7 +222,7 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Notifications"
+                        <a title="Notifications" wire:navigate
                             class="{{ request()->is('notifications*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('notifications.email') }}">
                             <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -199,7 +234,7 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Keys & Tokens"
+                        <a title="Keys & Tokens" wire:navigate
                             class="{{ request()->is('security*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('security.private-key.index') }}">
                             <svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -211,9 +246,9 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Tags"
+                        <a title="Tags" wire:navigate
                             class="{{ request()->is('tags*') ? 'menu-item-active menu-item' : 'menu-item' }}"
-                            href="{{ route('tags.index') }}">
+                            href="{{ route('tags.show') }}">
                             <svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <g fill="none" stroke="currentColor" stroke-linecap="round"
                                     stroke-linejoin="round" stroke-width="2">
@@ -226,9 +261,9 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Command Center"
-                            class="{{ request()->is('command-center*') ? 'menu-item-active menu-item' : 'menu-item' }}"
-                            href="{{ route('command-center') }}">
+                        <a title="Terminal"
+                            class="{{ request()->is('terminal*') ? 'menu-item-active menu-item' : 'menu-item' }}"
+                            href="{{ route('terminal') }}">
                             <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
                                 stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round"
                                 stroke-linejoin="round">
@@ -236,11 +271,11 @@
                                 <path d="M5 7l5 5l-5 5" />
                                 <path d="M12 19l7 0" />
                             </svg>
-                            Command Center
+                            Terminal
                         </a>
                     </li>
                     <li>
-                        <a title="Profile"
+                        <a title="Profile" wire:navigate
                             class="{{ request()->is('profile*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('profile') }}">
                             <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
@@ -255,7 +290,7 @@
                         </a>
                     </li>
                     <li>
-                        <a title="Teams"
+                        <a title="Teams" wire:navigate
                             class="{{ request()->is('team*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('team.index') }}">
                             <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
@@ -274,7 +309,7 @@
                     </li>
                     @if (isCloud())
                         <li>
-                            <a title="Subscription"
+                            <a title="Subscription" wire:navigate
                                 class="{{ request()->is('subscription*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                                 href="{{ route('subscription.show') }}">
                                 <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -289,7 +324,7 @@
                     @if (isInstanceAdmin())
                         <li>
 
-                            <a title="Settings"
+                            <a title="Settings" wire:navigate
                                 class="{{ request()->is('settings*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                                 href="/settings">
                                 <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
@@ -305,27 +340,30 @@
                         </li>
                     @endif
 
-                    @if (isCloud() && isInstanceAdmin())
-                        <li>
-
-                            <a title="Admin" class="menu-item" href="/admin">
-                                <svg class="text-pink-600 icon" viewBox="0 0 256 256"
-                                    xmlns="http://www.w3.org/2000/svg">
-                                    <path fill="currentColor"
-                                        d="M177.62 159.6a52 52 0 0 1-34 34a12.2 12.2 0 0 1-3.6.55a12 12 0 0 1-3.6-23.45a28 28 0 0 0 18.32-18.32a12 12 0 0 1 22.9 7.2ZM220 144a92 92 0 0 1-184 0c0-28.81 11.27-58.18 33.48-87.28a12 12 0 0 1 17.9-1.33l19.69 19.11L127 19.89a12 12 0 0 1 18.94-5.12C168.2 33.25 220 82.85 220 144m-24 0c0-41.71-30.61-78.39-52.52-99.29l-20.21 55.4a12 12 0 0 1-19.63 4.5L80.71 82.36C67 103.38 60 124.06 60 144a68 68 0 0 0 136 0" />
-                                </svg>
-                                Admin
-                            </a>
-                        </li>
+                    @if (isCloud() || isDev())
+                        @if (isInstanceAdmin() || session('impersonating'))
+                            <li>
+                                <a wire:navigate title="Admin" class="menu-item" href="/admin">
+                                    <svg class="text-pink-600 icon" viewBox="0 0 256 256"
+                                        xmlns="http://www.w3.org/2000/svg">
+                                        <path fill="currentColor"
+                                            d="M177.62 159.6a52 52 0 0 1-34 34a12.2 12.2 0 0 1-3.6.55a12 12 0 0 1-3.6-23.45a28 28 0 0 0 18.32-18.32a12 12 0 0 1 22.9 7.2ZM220 144a92 92 0 0 1-184 0c0-28.81 11.27-58.18 33.48-87.28a12 12 0 0 1 17.9-1.33l19.69 19.11L127 19.89a12 12 0 0 1 18.94-5.12C168.2 33.25 220 82.85 220 144m-24 0c0-41.71-30.61-78.39-52.52-99.29l-20.21 55.4a12 12 0 0 1-19.63 4.5L80.71 82.36C67 103.38 60 124.06 60 144a68 68 0 0 0 136 0" />
+                                    </svg>
+                                    Admin
+                                </a>
+                            </li>
+                        @endif
                     @endif
                     <div class="flex-1"></div>
                     @if (isInstanceAdmin() && !isCloud())
-                        <li>
-                            <livewire:upgrade />
-                        </li>
+                        @persist('upgrade')
+                            <li>
+                                <livewire:upgrade />
+                            </li>
+                        @endpersist
                     @endif
                     <li>
-                        <a title="Onboarding"
+                        <a title="Onboarding" wire:navigate
                             class="{{ request()->is('onboarding*') ? 'menu-item-active menu-item' : 'menu-item' }}"
                             href="{{ route('onboarding') }}">
                             <svg class="icon" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
@@ -349,6 +387,9 @@
                             Sponsor us
                         </a>
                     </li>
+                @endif
+                @if (!isSubscribed() && isCloud() && auth()->user()->teams()->get()->count() > 1)
+                    <livewire:navbar-delete-team />
                 @endif
                 <li>
                     <x-modal-input title="How can we help?">
@@ -379,44 +420,5 @@
                 </li>
             </ul>
         </li>
-        {{-- <li>
-            <div class="text-xs font-semibold leading-6 text-gray-400">Your teams</div>
-            <ul role="list" class="mt-2 -mx-2 space-y-1">
-                <li>
-                    <a href="#"
-                        class="flex p-2 text-sm font-semibold leading-6 text-gray-700 rounded-md hover:text-indigo-600 hover:bg-gray-50 group gap-x-3">
-                        <span
-                            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[0.625rem] font-medium bg-white text-gray-400 border-gray-200 group-hover:border-indigo-600 group-hover:text-indigo-600">H</span>
-                        <span class="truncate">Heroicons</span>
-                    </a>
-                </li>
-                <li>
-                    <a href="#"
-                        class="flex p-2 text-sm font-semibold leading-6 text-gray-700 rounded-md hover:text-indigo-600 hover:bg-gray-50 group gap-x-3">
-                        <span
-                            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[0.625rem] font-medium bg-white text-gray-400 border-gray-200 group-hover:border-indigo-600 group-hover:text-indigo-600">T</span>
-                        <span class="truncate">Tailwind Labs</span>
-                    </a>
-                </li>
-                <li>
-                    <a href="#"
-                        class="flex p-2 text-sm font-semibold leading-6 text-gray-700 rounded-md hover:text-indigo-600 hover:bg-gray-50 group gap-x-3">
-                        <span
-                            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[0.625rem] font-medium bg-white text-gray-400 border-gray-200 group-hover:border-indigo-600 group-hover:text-indigo-600">W</span>
-                        <span class="truncate">Workcation</span>
-                    </a>
-                </li>
-            </ul>
-        </li>
-        <li class="mt-auto -mx-6">
-            <a href="#"
-                class="flex items-center px-6 py-3 text-sm font-semibold leading-6 text-gray-900 gap-x-4 hover:bg-gray-50">
-                <img class="w-8 h-8 rounded-full bg-gray-50"
-                    src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                    alt="">
-                <span class="sr-only">Your profile</span>
-                <span aria-hidden="true">Tom Cook</span>
-            </a>
-        </li> --}}
     </ul>
 </nav>

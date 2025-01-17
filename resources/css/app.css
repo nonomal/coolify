@@ -1,19 +1,41 @@
+@import 'fonts';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 html,
 body {
-    @apply h-full bg-neutral-50 text-neutral-800 dark:bg-base dark:text-neutral-400;
+    @apply min-h-full bg-neutral-50 dark:bg-base dark:text-neutral-400 w-full;
 }
 
 body {
-    @apply text-sm antialiased scrollbar;
+    @apply text-sm antialiased scrollbar min-h-screen;
+}
+
+.apexcharts-tooltip {
+    @apply dark:text-white dark:border-coolgray-300 dark:bg-coolgray-200 shadow-none !important;
+}
+
+.apexcharts-tooltip-title {
+    @apply hidden !important;
+}
+
+.apexcharts-xaxistooltip {
+    @apply hidden !important;
 }
 
 .input,
 .select {
     @apply text-black dark:bg-coolgray-100 dark:text-white ring-neutral-200 dark:ring-coolgray-300;
+}
+
+.input-sticky {
+    @apply text-black dark:bg-coolgray-100 dark:text-white ring-neutral-200 dark:ring-coolgray-300 focus:ring-2 dark:focus:ring-coolgray-300 focus:ring-neutral-400 block w-full py-1.5 rounded border-0 text-sm ring-1 ring-inset;
+}
+
+.input-sticky-active {
+    @apply border-2 border-coollabs text-black dark:text-white focus:bg-neutral-200 dark:focus:bg-coolgray-400 focus:border-coollabs;
 }
 
 /* Readonly */
@@ -53,7 +75,7 @@ button[isHighlighted]:not(:disabled) {
 }
 
 h1 {
-    @apply text-2xl font-bold dark:text-white;
+    @apply text-3xl font-bold dark:text-white;
 }
 
 h2 {
@@ -108,6 +130,10 @@ tr td:first-child {
     @apply pl-4 pr-3 font-bold sm:pl-6;
 }
 
+section {
+    @apply mb-12;
+}
+
 .alert-success {
     @apply flex items-center gap-2 text-success;
 }
@@ -115,15 +141,19 @@ tr td:first-child {
 .alert-error {
     @apply flex items-center gap-2 text-error;
 }
+
 .tag {
     @apply px-2 py-1 cursor-pointer box-description dark:bg-coolgray-100 dark:hover:bg-coolgray-300 bg-neutral-100 hover:bg-neutral-200;
 }
+
 .add-tag {
     @apply flex items-center px-2 text-xs cursor-pointer dark:text-neutral-500/20 text-neutral-500 group-hover:text-neutral-700 group-hover:dark:text-white dark:hover:bg-coolgray-300 hover:bg-neutral-200;
 }
+
 .dropdown-item {
     @apply relative flex cursor-pointer select-none dark:text-white hover:bg-neutral-100 dark:hover:bg-coollabs items-center pr-4 pl-2 py-1 text-xs justify-start outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-2 w-full;
 }
+
 .dropdown-item-no-padding {
     @apply relative flex cursor-pointer select-none dark:text-white hover:bg-neutral-100 dark:hover:bg-coollabs items-center py-1 text-xs justify-start outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-2 w-full;
 }
@@ -148,10 +178,6 @@ tr td:first-child {
     @apply bg-error;
 }
 
-/* [type='checkbox']:checked {
-    background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='black' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
-} */
-
 .menu {
     @apply flex items-center gap-1;
 }
@@ -173,7 +199,7 @@ tr td:first-child {
 }
 
 .scrollbar {
-    @apply scrollbar-thumb-coollabs-100 dark:scrollbar-track-coolgray-200 scrollbar-track-neutral-200 scrollbar-w-2;
+    @apply scrollbar-thumb-coollabs-100 dark:scrollbar-track-coolgray-200 scrollbar-track-neutral-200 scrollbar-thin;
 }
 
 .main {
@@ -197,14 +223,17 @@ tr td:first-child {
 }
 
 .box {
-    @apply relative flex lg:flex-row flex-col p-2 transition-colors cursor-pointer min-h-[4rem] dark:bg-coolgray-100 bg-white border text-black dark:text-white hover:text-black border-neutral-200 dark:border-black hover:bg-neutral-100 dark:hover:bg-coollabs-100 dark:hover:text-white hover:no-underline;
+    @apply relative flex lg:flex-row flex-col p-2 transition-colors cursor-pointer min-h-[4rem] dark:bg-coolgray-100 shadow bg-white border text-black dark:text-white hover:text-black border-neutral-200 dark:border-black hover:bg-neutral-100 dark:hover:bg-coollabs-100 dark:hover:text-white hover:no-underline;
 }
+
 .box-boarding {
     @apply flex lg:flex-row flex-col p-2 transition-colors cursor-pointer min-h-[4rem] dark:bg-coolgray-100 dark:text-white bg-neutral-50 border border-neutral-200 dark:border-black hover:bg-neutral-100 dark:hover:bg-coollabs-100 dark:hover:text-white hover:text-black hover:no-underline text-black;
 }
+
 .box-without-bg {
     @apply flex p-2 transition-colors dark:hover:text-white hover:no-underline min-h-[4rem] border border-neutral-200 dark:border-black;
 }
+
 .box-without-bg-without-border {
     @apply flex p-2 transition-colors dark:hover:text-white hover:no-underline min-h-[4rem];
 }
@@ -284,7 +313,7 @@ tr td:first-child {
 }
 
 .fullscreen {
-    @apply fixed top-0 left-0 w-full h-full z-[9999] dark:bg-coolgray-100 bg-white overflow-y-auto scrollbar pb-4;
+    @apply fixed top-0 left-0 w-full h-full z-[9999] dark:bg-coolgray-100 bg-white overflow-y-auto scrollbar;
 }
 
 .toast {
@@ -293,4 +322,8 @@ tr td:first-child {
 
 .dz-button {
     @apply w-full p-4 py-10 my-4 font-bold bg-white border dark:border-coolgray-400 dark:text-white dark:bg-transparent hover:dark:bg-coolgray-400;
+}
+
+.xterm {
+    @apply p-2;
 }

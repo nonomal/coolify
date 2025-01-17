@@ -11,16 +11,22 @@
 
         let checkNumber = 1;
         let checkPusherInterval = null;
+        let checkReconnectInterval = null;
+
         if (!this.popups.realtime) {
             checkPusherInterval = setInterval(() => {
-                if (window.Echo && window.Echo.connector.pusher.connection.state !== 'connected') {
-                    checkNumber++;
-                    if (checkNumber > 5) {
-                        this.popups.realtime = true;
-                        console.error(
-                            'Coolify could not connect to its real-time service. This will cause unusual problems on the UI if not fixed! Please check the related documentation (https://coolify.io/docs/knowledge-base/cloudflare/tunnels) or get help on Discord (https://coollabs.io/discord).)'
-                        );
-                        clearInterval(checkPusherInterval);
+                if (window.Echo) {
+                    if (window.Echo.connector.pusher.connection.state === 'connected') {
+                        this.popups.realtime = false;
+                    } else {
+                        checkNumber++;
+                        if (checkNumber > 5) {
+                            this.popups.realtime = true;
+                            console.error(
+                                'Coolify could not connect to its real-time service. This will cause unusual problems on the UI if not fixed! Please check the related documentation (https://coolify.io/docs/knowledge-base/cloudflare/tunnels) or get help on Discord (https://coollabs.io/discord).)'
+                            );
+                        }
+
                     }
                 }
             }, 2000);
@@ -32,21 +38,16 @@
             @if (!isCloud())
                 <x-popup>
                     <x-slot:title>
-                        <span class="font-bold text-left text-red-500">WARNING: </span>Realtime Error?!
+                        <span class="font-bold text-left text-red-500">WARNING: </span> Cannot connect to real-time service
                     </x-slot:title>
                     <x-slot:description>
-                        <span>Coolify could not connect to its real-time service.<br>This will cause unusual problems on the
-                            UI
-                            if
-                            not fixed! <br><br>
+                        <div>This will cause unusual problems on the
+                            UI! <br><br>
                             Please ensure that you have opened the
                             <a class="underline" href='https://coolify.io/docs/knowledge-base/server/firewall'
-                                target='_blank'>required ports</a>,
-                            check the
-                            related <a class="underline" href='https://coolify.io/docs/knowledge-base/cloudflare/tunnels'
-                                target='_blank'>documentation</a> or get
+                                target='_blank'>required ports</a> or get
                             help on <a class="underline" href='https://coollabs.io/discord' target='_blank'>Discord</a>.
-                        </span>
+                        </div>
                     </x-slot:description>
                     <x-slot:button-text @click="disableRealtime()">
                         Acknowledge & Disable This Popup

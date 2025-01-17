@@ -9,10 +9,14 @@ use Livewire\Component;
 class Show extends Component
 {
     public Project $project;
+
     public Application $application;
+
     public $environment;
+
     public array $parameters;
-    protected $listeners = ['refreshEnvs' => '$refresh', 'saveKey' => 'saveKey'];
+
+    protected $listeners = ['refreshEnvs' => '$refresh', 'saveKey', 'environmentVariableDeleted' => '$refresh'];
 
     public function saveKey($data)
     {
@@ -34,12 +38,14 @@ class Show extends Component
             return handleError($e, $this);
         }
     }
+
     public function mount()
     {
         $this->parameters = get_route_parameters();
-        $this->project = Project::ownedByCurrentTeam()->where('uuid', request()->route('project_uuid'))->first();
-        $this->environment = $this->project->environments()->where('name', request()->route('environment_name'))->first();
+        $this->project = Project::ownedByCurrentTeam()->where('uuid', request()->route('project_uuid'))->firstOrFail();
+        $this->environment = $this->project->environments()->where('uuid', request()->route('environment_uuid'))->firstOrFail();
     }
+
     public function render()
     {
         return view('livewire.shared-variables.environment.show');

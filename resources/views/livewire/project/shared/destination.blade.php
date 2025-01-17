@@ -31,7 +31,7 @@
                 </div>
             @endif
         </div>
-        @if ($resource?->additional_networks?->count() > 0)
+        @if ($resource?->additional_networks?->count() > 0 && data_get($resource, 'build_pack') !== 'dockercompose')
             <h3>Additional Server(s)</h3>
             @foreach ($resource->additional_networks as $destination)
                 <div class="flex flex-col gap-2">
@@ -62,25 +62,25 @@
                             <x-forms.button isError
                                 wire:click="stop('{{ data_get($destination, 'server.id') }}')">Stop</x-forms.button>
                         @endif
-                        <x-modal-confirmation
-                            action="removeServer({{ data_get($destination, 'id') }},{{ data_get($destination, 'server.id') }})"
-                            isErrorButton buttonTitle="Remove Server">
-                            This will stop the running application in this server and remove it as a deployment
-                            destination.<br><br>Please think again.
-                        </x-modal-confirmation>
+                        <x-modal-confirmation title="Confirm server removal?" isErrorButton buttonTitle="Remove Server"
+                            submitAction="removeServer({{ data_get($destination, 'id') }},{{ data_get($destination, 'server.id') }})"
+                            :actions="[
+                                'This will stop the all running applications on this server and remove it as a deployment destination.',
+                            ]" confirmationText="{{ data_get($destination, 'server.name') }}"
+                            confirmationLabel="Please confirm the execution of the actions by entering the Server Name below"
+                            shortConfirmationLabel="Server Name" step3ButtonText="Permanently Remove Server" />
                     </div>
                 </div>
             @endforeach
         @endif
     </div>
-    @if ($resource->getMorphClass() === 'App\Models\Application')
+    @if ($resource->getMorphClass() === 'App\Models\Application' && data_get($resource, 'build_pack') !== 'dockercompose')
         @if (count($networks) > 0)
             <h4>Choose another server</h4>
-            <div class="pb-4 description">(experimental) </div>
             <div class="grid grid-cols-1 gap-4">
                 @foreach ($networks as $network)
                     <div wire:click="addServer('{{ $network->id }}','{{ data_get($network, 'server.id') }}')"
-                        class="relative flex flex-col cursor-default dark:text-white box w-96">
+                        class="relative flex flex-col cursor-default dark:text-white box w-96 group">
                         <div>
                             <div class="box-title">
                                 Server: {{ data_get($network, 'server.name') }}

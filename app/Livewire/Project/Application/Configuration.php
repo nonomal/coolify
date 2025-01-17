@@ -3,36 +3,44 @@
 namespace App\Livewire\Project\Application;
 
 use App\Models\Application;
-use App\Models\Server;
 use Livewire\Component;
 
 class Configuration extends Component
 {
+    public $currentRoute;
+
     public Application $application;
+
+    public $project;
+
+    public $environment;
+
     public $servers;
+
     protected $listeners = ['buildPackUpdated' => '$refresh'];
 
     public function mount()
     {
-        $project = currentTeam()->load(['projects'])->projects->where('uuid', request()->route('project_uuid'))->first();
-        if (!$project) {
-            return redirect()->route('dashboard');
-        }
-        $environment = $project->load(['environments'])->environments->where('name', request()->route('environment_name'))->first()->load(['applications']);
-        if (!$environment) {
-            return redirect()->route('dashboard');
-        }
-        $application = $environment->applications->where('uuid', request()->route('application_uuid'))->first();
-        if (!$application) {
-            return redirect()->route('dashboard');
-        }
+        $this->currentRoute = request()->route()->getName();
+        $project = currentTeam()
+            ->projects()
+            ->select('id', 'uuid', 'team_id')
+            ->where('uuid', request()->route('project_uuid'))
+            ->firstOrFail();
+        $environment = $project->environments()
+            ->select('id', 'uuid', 'name', 'project_id')
+            ->where('uuid', request()->route('environment_uuid'))
+            ->firstOrFail();
+        $application = $environment->applications()
+            ->with(['destination'])
+            ->where('uuid', request()->route('application_uuid'))
+            ->firstOrFail();
+
+        $this->project = $project;
+        $this->environment = $environment;
         $this->application = $application;
-        $mainServer = $this->application->destination->server;
-        $servers = Server::ownedByCurrentTeam()->get();
-        $this->servers = $servers->filter(function ($server) use ($mainServer) {
-            return $server->id != $mainServer->id;
-        });
     }
+
     public function render()
     {
         return view('livewire.project.application.configuration');

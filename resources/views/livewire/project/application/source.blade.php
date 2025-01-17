@@ -10,7 +10,7 @@
                 </x-forms.button>
             </a>
             @if (data_get($application, 'source.is_public') === false)
-                <a target="_blank" class="hover:no-underline" href="{{ get_installation_path($application->source) }}">
+                <a target="_blank" class="hover:no-underline" href="{{ getInstallationPath($application->source) }}">
                     <x-forms.button>
                         Open Git App
                         <x-external-link />
@@ -27,25 +27,23 @@
 
         <div class="flex flex-col gap-2">
             <div class="flex gap-2">
-                <x-forms.input placeholder="coollabsio/coolify-example" id="application.git_repository" readonly
-                    label="Repository" />
-                <x-forms.input placeholder="main" id="application.git_branch" label="Branch" />
+                <x-forms.input placeholder="coollabsio/coolify-example" id="gitRepository" label="Repository" />
+                <x-forms.input placeholder="main" id="gitBranch" label="Branch" />
             </div>
             <div class="flex items-end gap-2">
-                <x-forms.input placeholder="HEAD" id="application.git_commit_sha" placeholder="HEAD"
-                    label="Commit SHA" />
+                <x-forms.input placeholder="HEAD" id="gitCommitSha" placeholder="HEAD" label="Commit SHA" />
             </div>
         </div>
-        @if(data_get($application, 'private_key_id'))
+        @if ($privateKeyId)
             <h3 class="pt-4">Deploy Key</h3>
             <div class="py-2 pt-4">Currently attached Private Key: <span
-                    class="dark:text-warning">{{ data_get($application, 'private_key.name') }}</span>
+                    class="dark:text-warning">{{ $privateKeyName }}</span>
             </div>
 
             <h4 class="py-2 ">Select another Private Key</h4>
-            <div class="flex gap-2">
-                @foreach ($private_keys as $key)
-                    <x-forms.button wire:click.defer="setPrivateKey('{{ $key->id }}')">{{ $key->name }}
+            <div class="flex flex-wrap gap-2">
+                @foreach ($privateKeys as $key)
+                    <x-forms.button wire:click="setPrivateKey('{{ $key->id }}')">{{ $key->name }}
                     </x-forms.button>
                 @endforeach
             </div>
